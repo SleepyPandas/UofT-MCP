@@ -18,13 +18,13 @@ MCP client calls get_course_details(course_code="CSC108H1", section_code="F")
 ```
 
 There is no local course catalog, AI model, or scheduling algorithm in this project.
-The timetable information comes directly from UofT on each call.
+Course lookup and generated timetables come from UofT on each call.
 
 ## Files You Will Work With
 
 | File | Responsibility |
 | --- | --- |
-| `uoft_mcp/server.py` | Defines the seven tools, maps arguments, and runs the MCP server. |
+| `uoft_mcp/server.py` | Defines the ten tools, maps arguments, and runs the MCP server. |
 | `uoft_mcp/client.py` | Sets the API URL, request headers, timeout, and HTTP error handling. |
 | `uoft_mcp/__main__.py` | Makes `python -m uoft_mcp` call the server's `main()` function. |
 | `uoft_mcp/__init__.py` | Marks the directory as an importable package. |
@@ -58,6 +58,18 @@ the API's `lowerThreshold`, while `search_courses` builds a POST body with neste
 includes `departmentProps: []`: omitting that field produced an HTTP 500 during
 verification. The original JSON is kept unchanged so this correction is explicit.
 
+`generate_timetable` maps each plan's `preference` onto `fitnessFunctionOption`
+(`early` to `MORNING_WEIGHTED`, `balanced` to `BALANCED`, `late` to
+`AFTERNOON_WEIGHTED`) and blocked `HH:MM` ranges onto `blockedOff` millisecond
+intervals. Course activity types become `{ "name": "*", "type": ... }` sections, which
+is how the Timetable Builder asks the solver to pick a section of that type.
+
+`save_timetable` does not accept an arbitrary URL. It requires the frontend's
+serialized state keys, builds `https://ttb.utoronto.ca/#!/?` plus that JSON, URL-encodes
+it the same way the website does, and POSTs the result as `text/plain` to
+`tiny/shorten`. The tool keeps the upstream object and adds `share_url`.
+`retrieve_timetable` is a GET of `tiny/retrieve?id=`.
+
 ## Startup, Responses, and Errors
 
 `create_server()` builds the server without making an API request. Its lifespan
@@ -69,8 +81,9 @@ JSON acceptance, a browser-like user agent, and the Timetable Builder origin and
 referrer. This public API does not need a token.
 
 `request_json()` parses the response but does not convert it into a custom course
-class. `_request()` serializes that data into one JSON text block. This preserves
-top-level arrays and objects uniformly; programmatic MCP clients can use
+class. It can send a JSON object, a JSON array, or raw encoded text. `_request()`
+serializes the parsed data into one JSON text block. This preserves top-level arrays
+and objects uniformly; programmatic MCP clients can use
 `json.loads(result.content[0].text)`. There is no separate structured-output schema,
 because the upstream response shapes are intentionally left open.
 
@@ -87,10 +100,12 @@ Use Python's `logging` module, which is configured to write to stderr.
 
 1. Verify the endpoint and required parameters against the reference and live API.
 2. Add a typed, documented function inside `create_server()` with a `@server.tool`
-   decorator. For another lookup, follow an existing tool's read-only annotation
-   and `structured_output=False` setting.
-3. Map its arguments to a fixed path and query parameters or JSON body, then call
-   `_request`. Do not accept arbitrary destination URLs.
+   decorator. Lookups and the solver can use the read-only annotation. Creating a
+   share record is not read-only and is not idempotent; it is still
+   `destructive_hint=False`. Keep `structured_output=False`.
+3. Map its arguments to a fixed path and query parameters, a JSON body, or the
+   encoded share payload, then call `_request`. Do not accept arbitrary destination
+   URLs.
 4. Add a mocked MCP call in `tests/test_tools.py` that checks the outgoing request
    and returned data. Update the expected tool count/name set and the README.
 5. Run the README's test and lint commands, then commit the completed change.
@@ -100,9 +115,8 @@ still go through the SDK, tool functions, and HTTP client, but the transport ret
 controlled responses without contacting UofT. The stdio tests separately verify that
 an installed package starts correctly and stdout contains protocol JSON only.
 
-Catalog dumps, timetable sharing, and schedule generation are intentionally deferred.
-Saving a timetable would need different tool annotations, and generation needs a
-verified request schema. They should be added as explicit features when needed.
+The catalog dump (`getCourses`) is still omitted because of its size. Generation and
+anonymous share save/retrieve are implemented; they still do not enroll students.
 
 ## Milestones
 

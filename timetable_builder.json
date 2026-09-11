@@ -190,9 +190,10 @@
         "purpose": "Save a serialized timetable state and generate a unique share ID.",
         "parameters": [],
         "request_body": {
-          "content_type": "application/x-www-form-urlencoded",
-          "schema": "URL-encoded JSON string representing timetable state."
-        }
+          "content_type": "text/plain",
+          "schema": "encodeURIComponent of https://ttb.utoronto.ca/#!/? plus the serialized timetable JSON (sessions, timetables, plans)."
+        },
+        "notes": "The frontend posts that encoded TTB URL and reads response.id. The shareable link is https://ttb.utoronto.ca/#!/?t={id}. This is an anonymous share record, not enrolment."
       },
       {
         "id": "retrieve-timetable",
@@ -217,8 +218,25 @@
         "parameters": [],
         "request_body": {
           "content_type": "application/json",
-          "schema": "Array of course selections and time preference constraints."
-        }
+          "schema": [
+            {
+              "courses": [
+                {
+                  "id": "course id from getCoursesByCodeAndSectionCode",
+                  "sections": [{"name": "*", "type": "Lecture"}]
+                }
+              ],
+              "fitnessFunctionOption": "MORNING_WEIGHTED | BALANCED | AFTERNOON_WEIGHTED",
+              "blockedOff": [
+                {
+                  "start": {"day": 1, "millisofday": 28800000},
+                  "end": {"day": 1, "millisofday": 32400000}
+                }
+              ]
+            }
+          ]
+        },
+        "notes": "Day 1 is Monday and day 5 is Friday. millisofday is milliseconds since midnight. One array entry is one term; a Fall-Winter year is two entries. The solver does not enroll students."
       }
     ]
   }

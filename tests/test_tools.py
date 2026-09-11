@@ -1,6 +1,7 @@
 """Exercise the public MCP interface against a deterministic HTTP transport."""
 
 import json
+from urllib.parse import quote
 
 import httpx
 import pytest
@@ -16,6 +17,22 @@ TOOL_NAMES = {
     "search_course_titles",
     "get_course_details",
     "search_courses",
+    "generate_timetable",
+    "save_timetable",
+    "retrieve_timetable",
+}
+READ_ONLY_TOOLS = TOOL_NAMES - {"save_timetable"}
+TIMETABLE_STATE = {
+    "sessions": ["20269"],
+    "timetables": [
+        {
+            "session": "20269",
+            "containingCourses": [],
+            "includedSections": [],
+            "onlineAsyncSections": [],
+        }
+    ],
+    "plans": [{"session": "20269", "courses": [], "selectedTimePreference": "BALANCED"}],
 }
 
 
@@ -26,15 +43,25 @@ async def test_discovery_and_required_arguments():
     ) as c:
         tools = {tool.name: tool for tool in (await c.list_tools()).tools}
         assert set(tools) == TOOL_NAMES
-        for tool in tools.values():
+        for name, tool in tools.items():
             assert tool.description
             assert "ctx" not in tool.input_schema["properties"]
-            assert tool.annotations.read_only_hint is True
+            assert tool.annotations.destructive_hint is False
+            if name == "save_timetable":
+                assert tool.annotations.read_only_hint is False
+                assert tool.annotations.idempotent_hint is False
+            else:
+                assert name in READ_ONLY_TOOLS
+                assert tool.annotations.read_only_hint is True
+                assert tool.annotations.idempotent_hint is True
         assert set(tools["search_course_titles"].input_schema["required"]) == {
             "term",
             "divisions",
             "sessions",
         }
+        assert tools["generate_timetable"].input_schema["required"] == ["plans"]
+        assert tools["save_timetable"].input_schema["required"] == ["timetable"]
+        assert tools["retrieve_timetable"].input_schema["required"] == ["share_id"]
 
 
 @pytest.mark.anyio
@@ -91,6 +118,12 @@ async def test_discovery_and_required_arguments():
             {"course_code": "CSC108H1", "section_code": "F"},
             "getCoursesByCodeAndSectionCode/CSC108H1",
             {"sectionCode": "F"},
+        ),
+        (
+            "retrieve_timetable",
+            {"share_id": "abc123XYZ"},
+            "tiny/retrieve",
+            {"id": "abc123XYZ"},
         ),
     ],
 )
@@ -185,6 +218,125 @@ async def test_paginated_search(custom):
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("custom", [False, True])
+async def test_generate_timetable(custom):
+    arguments = {
+        "plans": [
+            {
+                "courses": [
+                    {
+                        "course_id": "69dd3ea4830c3634bbb69a4a",
+                        "activity_types": ["Lecture", "Practical"],
+                    }
+                ]
+            }
+        ]
+    }
+    expected = [
+        {
+            "courses": [
+                {
+                    "id": "69dd3ea4830c3634bbb69a4a",
+                    "sections": [
+                        {"name": "*", "type": "Lecture"},
+                        {"name": "*", "type": "Practical"},
+                    ],
+                }
+            ],
+            "fitnessFunctionOption": "BALANCED",
+            "blockedOff": [],
+        }
+    ]
+    if custom:
+        arguments["plans"][0]["preference"] = "early"
+        arguments["plans"][0]["blocked_times"] = [{"day": "Monday", "start": "8:00", "end": "9:00"}]
+        arguments["plans"].append(
+            {
+                "courses": [
+                    {"course_id": "69dd3ea4830c3634bbb69a5d", "activity_types": ["Lecture"]}
+                ],
+                "preference": "late",
+            }
+        )
+        expected[0]["fitnessFunctionOption"] = "MORNING_WEIGHTED"
+        expected[0]["blockedOff"] = [
+            {
+                "start": {"day": 1, "millisofday": 28800000},
+                "end": {"day": 1, "millisofday": 32400000},
+            }
+        ]
+        expected.append(
+            {
+                "courses": [
+                    {
+                        "id": "69dd3ea4830c3634bbb69a5d",
+                        "sections": [{"name": "*", "type": "Lecture"}],
+                    }
+                ],
+                "fitnessFunctionOption": "AFTERNOON_WEIGHTED",
+                "blockedOff": [],
+            }
+        )
+    payload = [{"courses": [{"code": "CSC258H1", "sections": [{"name": "LEC0101"}]}]}]
+    seen = []
+
+    def respond(request):
+        seen.append(request)
+        assert request.method == "POST"
+        assert request.url.path == "/ttb/generateYear"
+        assert not request.url.query
+        assert request.headers["content-type"] == "application/json"
+        assert json.loads(request.content) == expected
+        return httpx.Response(200, json=payload)
+
+    async with Client(create_server(httpx.MockTransport(respond))) as client:
+        result = await client.call_tool("generate_timetable", arguments)
+        assert not result.is_error
+        assert json.loads(result.content[0].text) == payload
+    assert len(seen) == 1
+
+
+@pytest.mark.anyio
+async def test_save_timetable_returns_share_url():
+    encoded = quote(
+        "https://ttb.utoronto.ca/#!/?"
+        + json.dumps(TIMETABLE_STATE, ensure_ascii=False, separators=(",", ":")),
+        safe="!~*'()",
+    )
+    seen = []
+
+    def respond(request):
+        seen.append(request)
+        assert request.method == "POST"
+        assert request.url.path == "/ttb/tiny/shorten"
+        assert not request.url.query
+        assert request.headers["content-type"] == "text/plain"
+        assert request.content.decode() == encoded
+        return httpx.Response(200, json={"id": "share1", "extra": True})
+
+    async with Client(create_server(httpx.MockTransport(respond))) as client:
+        result = await client.call_tool("save_timetable", {"timetable": TIMETABLE_STATE})
+        assert not result.is_error
+        assert json.loads(result.content[0].text) == {
+            "id": "share1",
+            "extra": True,
+            "share_url": "https://ttb.utoronto.ca/#!/?t=share1",
+        }
+    assert len(seen) == 1
+
+
+@pytest.mark.anyio
+async def test_save_timetable_rejects_missing_share_id():
+    def respond(request):
+        return httpx.Response(200, json={"message": "ok"})
+
+    async with Client(create_server(httpx.MockTransport(respond))) as client:
+        result = await client.call_tool("save_timetable", {"timetable": TIMETABLE_STATE})
+        assert result.is_error
+        assert "share id" in result.content[0].text
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "failure,message",
     [
@@ -235,6 +387,70 @@ async def test_upstream_failures_are_tool_errors(failure, message):
         ("search_courses", {"page": 0}),
         ("search_courses", {"page_size": 0}),
         ("search_courses", {"sessions": [""]}),
+        ("generate_timetable", {}),
+        ("generate_timetable", {"plans": []}),
+        ("generate_timetable", {"plans": [{"courses": []}]}),
+        (
+            "generate_timetable",
+            {
+                "plans": [
+                    {"courses": [{"course_id": "69dd3ea4830c3634bbb69a4a", "activity_types": []}]}
+                ]
+            },
+        ),
+        (
+            "generate_timetable",
+            {
+                "plans": [
+                    {
+                        "courses": [
+                            {
+                                "course_id": "69dd3ea4830c3634bbb69a4a",
+                                "activity_types": ["Lecture"],
+                            }
+                        ],
+                        "preference": "midnight",
+                    }
+                ]
+            },
+        ),
+        (
+            "generate_timetable",
+            {
+                "plans": [
+                    {
+                        "courses": [
+                            {
+                                "course_id": "69dd3ea4830c3634bbb69a4a",
+                                "activity_types": ["Lecture"],
+                            }
+                        ],
+                        "blocked_times": [{"day": "Monday", "start": "10:00", "end": "9:00"}],
+                    }
+                ]
+            },
+        ),
+        (
+            "generate_timetable",
+            {
+                "plans": [
+                    {
+                        "courses": [
+                            {
+                                "course_id": "69dd3ea4830c3634bbb69a4a",
+                                "activity_types": ["Lecture"],
+                            }
+                        ],
+                        "blocked_times": [{"day": "Monday", "start": "25:00", "end": "26:00"}],
+                    }
+                ]
+            },
+        ),
+        ("save_timetable", {}),
+        ("save_timetable", {"timetable": {"sessions": [], "timetables": []}}),
+        ("retrieve_timetable", {}),
+        ("retrieve_timetable", {"share_id": " "}),
+        ("retrieve_timetable", {"share_id": "../tiny"}),
     ],
 )
 async def test_invalid_arguments_do_not_reach_upstream(name, arguments):

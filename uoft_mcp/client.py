@@ -8,7 +8,7 @@ BASE_URL = "https://api.easi.utoronto.ca/ttb/"
 TIMEOUT_SECONDS = 30.0
 HEADERS = {
     "Accept": "application/json",
-    "User-Agent": "Mozilla/5.0 (compatible; UofT-MCP/0.1)",
+    "User-Agent": "Mozilla/5.0 (compatible; UofT-MCP/0.2)",
     "Origin": "https://ttb.utoronto.ca",
     "Referer": "https://ttb.utoronto.ca/",
 }
@@ -34,16 +34,28 @@ async def request_json(
     path: str,
     *,
     params: dict[str, str | int | None] | None = None,
-    body: dict[str, Any] | None = None,
+    body: dict[str, Any] | list[Any] | None = None,
+    content: str | bytes | None = None,
+    content_type: str | None = None,
 ) -> Any:
     """Request one endpoint and preserve its JSON without imposing a course schema.
 
     Optional query parameters are omitted, rather than sent as empty strings.
     Paths are internal endpoint constants, never arbitrary client-provided URLs.
+    JSON bodies and raw content are mutually exclusive; raw content is used for
+    the Timetable Builder's encoded share payload.
     """
     query = {key: value for key, value in (params or {}).items() if value is not None}
+    headers = {"Content-Type": content_type} if content_type is not None else None
     try:
-        response = await client.request(method, path, params=query, json=body)
+        response = await client.request(
+            method,
+            path,
+            params=query,
+            json=body,
+            content=content,
+            headers=headers,
+        )
         response.raise_for_status()
     except httpx.TimeoutException as exc:
         raise TimetableAPIError(

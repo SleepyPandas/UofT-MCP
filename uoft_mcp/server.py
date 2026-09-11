@@ -1,11 +1,11 @@
-"""Seven read-only MCP tools mapping directly to Timetable Builder endpoints."""
+"""MCP tools mapping directly to Timetable Builder lookup, generation, and sharing endpoints."""
 
 import json
 import logging
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Never
 from urllib.parse import quote
 
 import httpx
@@ -13,7 +13,7 @@ from mcp.server import MCPServer
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from uoft_mcp.client import TimetableAPIError, create_http_client, request_json
 
@@ -21,7 +21,38 @@ NonEmptyString = Annotated[str, Field(min_length=1, pattern=r"\S")]
 NonNegativeInt = Annotated[int, Field(ge=0)]
 PositiveInt = Annotated[int, Field(ge=1)]
 SectionCode = Literal["F", "S", "Y"]
+TimePreference = Literal["early", "balanced", "late"]
+Weekday = Literal["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+ClockTime = Annotated[str, Field(pattern=r"^\d{1,2}:\d{2}$")]
+ObjectId = Annotated[str, Field(pattern=r"^[A-Za-z0-9]+$")]
+ShareId = Annotated[str, Field(min_length=1, pattern=r"^[A-Za-z0-9]+$")]
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True)
+SAVE_SHARE = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False)
+TTB_ORIGIN = "https://ttb.utoronto.ca"
+TIMETABLE_STATE_KEYS = frozenset({"sessions", "timetables", "plans"})
+
+
+class BlockedTime(BaseModel):
+    """A weekday interval the solver should leave empty."""
+
+    day: Weekday
+    start: ClockTime
+    end: ClockTime
+
+
+class GenerationCourse(BaseModel):
+    """One course the solver should schedule, identified by Timetable Builder id."""
+
+    course_id: ObjectId
+    activity_types: Annotated[list[NonEmptyString], Field(min_length=1)]
+
+
+class GenerationPlan(BaseModel):
+    """One term's courses, time preference, and optional blocked intervals."""
+
+    courses: Annotated[list[GenerationCourse], Field(min_length=1)]
+    preference: TimePreference = "balanced"
+    blocked_times: list[BlockedTime] | None = None
 
 
 async def _request(
@@ -30,16 +61,129 @@ async def _request(
     path: str,
     *,
     params: dict[str, str | int | None] | None = None,
-    body: dict[str, Any] | None = None,
+    body: dict[str, Any] | list[Any] | None = None,
+    content: str | bytes | None = None,
+    content_type: str | None = None,
 ) -> str:
     """Expose the complete upstream JSON as one MCP text block, including arrays."""
+    data = await _request_data(
+        ctx,
+        method,
+        path,
+        params=params,
+        body=body,
+        content=content,
+        content_type=content_type,
+    )
+    return json.dumps(data, ensure_ascii=False)
+
+
+async def _request_data(
+    ctx: Context[httpx.AsyncClient],
+    method: str,
+    path: str,
+    *,
+    params: dict[str, str | int | None] | None = None,
+    body: dict[str, Any] | list[Any] | None = None,
+    content: str | bytes | None = None,
+    content_type: str | None = None,
+) -> Any:
+    """Call one fixed Timetable Builder path and return the parsed JSON."""
     try:
-        data = await request_json(
-            ctx.request_context.lifespan_context, method, path, params=params, body=body
+        return await request_json(
+            ctx.request_context.lifespan_context,
+            method,
+            path,
+            params=params,
+            body=body,
+            content=content,
+            content_type=content_type,
         )
     except TimetableAPIError as exc:
         raise ToolError(str(exc)) from exc
-    return json.dumps(data, ensure_ascii=False)
+
+
+def _fitness_option(preference: TimePreference) -> str:
+    """Map the public preference names to the solver's fitnessFunctionOption values."""
+    match preference:
+        case "early":
+            return "MORNING_WEIGHTED"
+        case "balanced":
+            return "BALANCED"
+        case "late":
+            return "AFTERNOON_WEIGHTED"
+        case _:
+            unused: Never = preference
+            raise ToolError(f"Unsupported preference: {unused}")
+
+
+def _weekday_number(day: Weekday) -> int:
+    """Map Timetable Builder weekday names onto the solver's 1-5 day numbers."""
+    match day:
+        case "Monday":
+            return 1
+        case "Tuesday":
+            return 2
+        case "Wednesday":
+            return 3
+        case "Thursday":
+            return 4
+        case "Friday":
+            return 5
+        case _:
+            unused: Never = day
+            raise ToolError(f"Unsupported weekday: {unused}")
+
+
+def _millis_of_day(clock: str) -> int:
+    """Convert a 24-hour HH:MM clock time into the API's milliseconds-since-midnight value."""
+    hours_text, minutes_text = clock.split(":")
+    hours = int(hours_text)
+    minutes = int(minutes_text)
+    if hours > 23 or minutes > 59:
+        raise ToolError(f"Invalid time {clock}; use HH:MM on a 24-hour clock.")
+    return (hours * 3600 + minutes * 60) * 1000
+
+
+def _blocked_off(blocked_times: list[BlockedTime] | None) -> list[dict[str, Any]]:
+    """Convert optional blocked clock ranges into the generateYear blockedOff objects."""
+    intervals: list[dict[str, Any]] = []
+    for blocked in blocked_times or []:
+        start = _millis_of_day(blocked.start)
+        end = _millis_of_day(blocked.end)
+        if start >= end:
+            raise ToolError(
+                f"{blocked.day} blocked time {blocked.start} must be earlier than {blocked.end}."
+            )
+        day = _weekday_number(blocked.day)
+        intervals.append(
+            {
+                "start": {"day": day, "millisofday": start},
+                "end": {"day": day, "millisofday": end},
+            }
+        )
+    return intervals
+
+
+def _generation_body(plans: list[GenerationPlan]) -> list[dict[str, Any]]:
+    """Build the verified generateYear request from validated MCP arguments."""
+    return [
+        {
+            "courses": [
+                {
+                    "id": course.course_id,
+                    "sections": [
+                        {"name": "*", "type": activity_type}
+                        for activity_type in course.activity_types
+                    ],
+                }
+                for course in plan.courses
+            ],
+            "fitnessFunctionOption": _fitness_option(plan.preference),
+            "blockedOff": _blocked_off(plan.blocked_times),
+        }
+        for plan in plans
+    ]
 
 
 def create_server(transport: httpx.AsyncBaseTransport | None = None) -> MCPServer:
@@ -55,8 +199,9 @@ def create_server(transport: httpx.AsyncBaseTransport | None = None) -> MCPServe
         "UofT Timetable Builder",
         instructions=(
             "Look up current sessions and reference data before choosing filters. "
+            "Course details include the course id needed by generate_timetable. "
             "Tools return the public UofT timetable API's complete JSON as text. "
-            "This server does not enroll students or generate schedules."
+            "This server does not enroll students."
         ),
         lifespan=lifespan,
     )
@@ -123,6 +268,7 @@ def create_server(transport: httpx.AsyncBaseTransport | None = None) -> MCPServe
 
         For example, course_code is CSC108H1. Optionally filter by F, S, or Y.
         This endpoint has no session parameter in the supplied API reference.
+        Use the returned course id with generate_timetable.
         """
         return await _request(
             ctx,
@@ -171,6 +317,54 @@ def create_server(transport: httpx.AsyncBaseTransport | None = None) -> MCPServe
             "direction": direction,
         }
         return await _request(ctx, "POST", "getPageableCourses", body=body)
+
+    @server.tool(structured_output=False, annotations=READ_ONLY)
+    async def generate_timetable(
+        ctx: Context[httpx.AsyncClient],
+        plans: Annotated[list[GenerationPlan], Field(min_length=1)],
+    ) -> str:
+        """Ask UofT's solver for conflict-free lecture, tutorial, and practical sections.
+
+        Each plan is one term. course_id values come from get_course_details.
+        activity_types are the section types to fill, such as Lecture, Tutorial,
+        or Practical. preference may be early, balanced, or late. Optional
+        blocked_times use weekday names and 24-hour HH:MM clock times. This does
+        not enroll students or write an ACORN timetable.
+        """
+        return await _request(ctx, "POST", "generateYear", body=_generation_body(plans))
+
+    @server.tool(structured_output=False, annotations=SAVE_SHARE)
+    async def save_timetable(ctx: Context[httpx.AsyncClient], timetable: dict[str, Any]) -> str:
+        """Store a serialized Timetable Builder state and return a public share URL.
+
+        timetable must be the TTB state object with sessions, timetables, and
+        plans. The wrapper posts the official ttb.utoronto.ca URL for that state
+        and returns the upstream share id plus a https://ttb.utoronto.ca/#!/?t=
+        link. This creates an anonymous share record only; it does not enroll
+        students.
+        """
+        missing = TIMETABLE_STATE_KEYS.difference(timetable)
+        if missing:
+            names = ", ".join(sorted(missing))
+            raise ToolError(f"timetable is missing required keys: {names}.")
+        encoded = quote(
+            f"{TTB_ORIGIN}/#!/?{json.dumps(timetable, ensure_ascii=False, separators=(',', ':'))}",
+            safe="!~*'()",
+        )
+        data = await _request_data(
+            ctx, "POST", "tiny/shorten", content=encoded, content_type="text/plain"
+        )
+        if not isinstance(data, dict) or not isinstance(data.get("id"), str) or not data["id"]:
+            raise ToolError("UofT timetable API did not return a share id at tiny/shorten.")
+        return json.dumps(
+            {**data, "share_url": f"{TTB_ORIGIN}/#!/?t={data['id']}"},
+            ensure_ascii=False,
+        )
+
+    @server.tool(structured_output=False, annotations=READ_ONLY)
+    async def retrieve_timetable(ctx: Context[httpx.AsyncClient], share_id: ShareId) -> str:
+        """Load a previously saved Timetable Builder state by its public share id."""
+        return await _request(ctx, "GET", "tiny/retrieve", params={"id": share_id})
 
     return server
 
