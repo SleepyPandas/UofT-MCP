@@ -1,0 +1,26 @@
+# Python environments and local dependency caches
+.venv/
+.venv-*/
+.uv-cache/
+.python/
+__pycache__/
+*.py[cod]
+
+# Test, lint, and build output
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Local configuration and editor state
+.env
+.env.*
+!.env.example
+.vscode/
+.idea/
+*.log
+.DS_Store
+Thumbs.db

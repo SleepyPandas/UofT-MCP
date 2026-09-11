@@ -1,0 +1,225 @@
+{
+  "api": {
+    "id": "timetable-builder",
+    "name": "Timetable Builder (TTB)",
+    "description": "Public course timetable, section scheduling, instructor, and classroom directory operated by U of T Enterprise Applications and Solutions Integration (EASI).",
+    "base_url": "https://api.easi.utoronto.ca/ttb",
+    "human_url": "https://ttb.utoronto.ca/",
+    "operator": "University of Toronto EASI / ITS",
+    "auth": "None",
+    "official_support": false,
+    "headers_required": {
+      "Accept": "application/json",
+      "User-Agent": "Browser-like user agent string",
+      "Origin": "https://ttb.utoronto.ca",
+      "Referer": "https://ttb.utoronto.ca/"
+    },
+    "cors_restriction": "Access-Control-Allow-Origin is restricted to https://ttb.utoronto.ca; server-to-server HTTP requests function normally.",
+    "endpoints": [
+      {
+        "id": "get-current-session",
+        "method": "GET",
+        "path": "/current-session",
+        "purpose": "Active academic terms and session identifiers.",
+        "parameters": [],
+        "response_type": "application/json",
+        "sample_response": {
+          "payload": [
+            {
+              "label": "Fall 2026 (F)",
+              "value": "20269",
+              "selected": false,
+              "header": false,
+              "group": "FallWinter-20269-20271"
+            },
+            {
+              "label": "Winter 2027  (S)",
+              "value": "20271",
+              "selected": false,
+              "header": false,
+              "group": "FallWinter-20269-20271"
+            }
+          ]
+        }
+      },
+      {
+        "id": "get-reference-data",
+        "method": "GET",
+        "path": "/reference-data",
+        "purpose": "System reference tables for divisions, campuses, delivery modes, and sorting directions.",
+        "parameters": [],
+        "response_type": "application/json"
+      },
+      {
+        "id": "get-matching-divisions",
+        "method": "GET",
+        "path": "/getMatchingDivisions",
+        "purpose": "List of recognized academic faculties and division codes (ARTSC, APSC, UTM, UTSC, etc.).",
+        "parameters": [],
+        "response_type": "application/json"
+      },
+      {
+        "id": "get-matching-departments",
+        "method": "GET",
+        "path": "/getMatchingDepartments",
+        "purpose": "Search academic departments within a given division.",
+        "parameters": [
+          {
+            "name": "term",
+            "in": "query",
+            "required": true,
+            "type": "string",
+            "description": "Search keyword for department name (e.g. 'computer', 'math')."
+          },
+          {
+            "name": "divisions",
+            "in": "query",
+            "required": true,
+            "type": "string",
+            "description": "Faculty division code (e.g. 'ARTSC', 'APSC')."
+          }
+        ],
+        "notes": "Both 'term' and 'divisions' query parameters are mandatory; omitting either returns HTTP 404."
+      },
+      {
+        "id": "get-optimized-course-titles",
+        "method": "GET",
+        "path": "/getOptimizedMatchingCourseTitles",
+        "purpose": "Fast course title and course code autocomplete search with relevance ranking.",
+        "parameters": [
+          {
+            "name": "term",
+            "in": "query",
+            "required": true,
+            "type": "string",
+            "description": "Course code prefix or keyword (e.g. 'CSC', 'data')."
+          },
+          {
+            "name": "divisions",
+            "in": "query",
+            "required": true,
+            "type": "string",
+            "description": "Division code filter (e.g. 'ARTSC')."
+          },
+          {
+            "name": "sessions",
+            "in": "query",
+            "required": true,
+            "type": "string",
+            "description": "Session code filter (e.g. '20269')."
+          },
+          {
+            "name": "lowerThreshold",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "default": 50
+          },
+          {
+            "name": "upperThreshold",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "default": 200
+          }
+        ]
+      },
+      {
+        "id": "get-course-by-code-and-section",
+        "method": "GET",
+        "path": "/getCoursesByCodeAndSectionCode/{courseCode}",
+        "purpose": "Retrieve complete course details, meeting times, building codes, room numbers, and instructor names.",
+        "parameters": [
+          {
+            "name": "courseCode",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "Full course code (e.g. 'CSC108H1')."
+          },
+          {
+            "name": "sectionCode",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "description": "Term section code ('F', 'S', or 'Y')."
+          }
+        ]
+      },
+      {
+        "id": "search-pageable-courses",
+        "method": "POST",
+        "path": "/getPageableCourses",
+        "purpose": "Faceted, paginated search across courses, sections, and campuses.",
+        "parameters": [],
+        "request_body": {
+          "content_type": "application/json",
+          "schema": {
+            "courseCodeAndTitleProps": {
+              "courseCode": "string",
+              "courseTitle": "string",
+              "courseSectionCode": "string",
+              "searchCourseDescription": "boolean"
+            },
+            "divisions": ["string"],
+            "sessions": ["string"],
+            "campuses": ["string"],
+            "deliveryModes": ["string"],
+            "page": "integer",
+            "pageSize": "integer",
+            "direction": "string"
+          }
+        }
+      },
+      {
+        "id": "get-all-courses",
+        "method": "POST",
+        "path": "/getCourses",
+        "purpose": "Complete catalog dump returning all active courses across the university database.",
+        "parameters": [],
+        "request_body": {
+          "content_type": "application/json",
+          "schema": "{}"
+        },
+        "notes": "Returns over 8,100 course objects (30+ MB payload)."
+      },
+      {
+        "id": "shorten-timetable",
+        "method": "POST",
+        "path": "/tiny/shorten",
+        "purpose": "Save a serialized timetable state and generate a unique share ID.",
+        "parameters": [],
+        "request_body": {
+          "content_type": "application/x-www-form-urlencoded",
+          "schema": "URL-encoded JSON string representing timetable state."
+        }
+      },
+      {
+        "id": "retrieve-timetable",
+        "method": "GET",
+        "path": "/tiny/retrieve",
+        "purpose": "Retrieve a saved timetable by its unique share ID.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "required": true,
+            "type": "string",
+            "description": "Unique share ID generated by /tiny/shorten."
+          }
+        ]
+      },
+      {
+        "id": "generate-year-timetable",
+        "method": "POST",
+        "path": "/generateYear",
+        "purpose": "Schedule solver engine that resolves conflict-free lecture and tutorial sections.",
+        "parameters": [],
+        "request_body": {
+          "content_type": "application/json",
+          "schema": "Array of course selections and time preference constraints."
+        }
+      }
+    ]
+  }
+}
