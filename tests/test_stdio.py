@@ -18,7 +18,7 @@ async def test_sdk_connects_to_stdio_from_another_directory(tmp_path):
     )
     with anyio.fail_after(20):
         async with Client(parameters, mode="legacy") as client:
-            assert len((await client.list_tools()).tools) == 7
+            assert len((await client.list_tools()).tools) == 10
 
 
 @pytest.mark.anyio
