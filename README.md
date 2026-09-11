@@ -7,9 +7,40 @@ API. It exposes seven course-lookup tools over local stdio using the
 No API key, database, web server, or environment variables are required. This is an
 unofficial wrapper; it does not enroll students, build schedules, or save timetables.
 
-## Setup (PowerShell)
+## Connect an MCP Client
 
-Requires [uv](https://docs.astral.sh/uv/getting-started/installation/). From this folder:
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then add this
+configuration to any client that supports `mcpServers`:
+
+```json
+{
+  "mcpServers": {
+    "uoft-timetable": {
+      "command": "uvx",
+      "args": ["uoft-mcp@latest"],
+      "env": {
+        "UV_HTTP_TIMEOUT": "300"
+      }
+    }
+  }
+}
+```
+
+Restart the client after saving its configuration. On Windows, if the client cannot
+find `uvx`, restart it after installing uv or replace `"uvx"` with the absolute path
+reported by `where.exe uvx`.
+
+`uvx` downloads the published package into an isolated environment and starts the
+`uoft-mcp` command. No repository clone, virtual environment setup, API key, server
+URL, or listening port is needed. The first start can take longer while uv downloads
+Python and the dependencies; later starts use its cache.
+
+To pin a release instead of following the newest release, use
+`"args": ["uoft-mcp==0.1.0"]`.
+
+## Local Development
+
+From a clone of this repository:
 
 ```powershell
 uv python install 3.13
@@ -18,49 +49,17 @@ uv sync --locked --managed-python
 
 `uv sync` creates `.venv`, installs the package and development tools, and uses the
 committed `uv.lock`. `.python-version` selects Python 3.13; the package supports
-Python 3.13 and newer. The lockfile currently includes MCP 2.2.0.
+Python 3.13 and newer.
 
-If uv cannot access its default cache, use a project-local cache:
-
-```powershell
-uv --cache-dir .uv-cache sync --locked --managed-python
-```
-
-## Run
+Run the local checkout with:
 
 ```powershell
 uv run --locked python -m uoft_mcp
 ```
 
-Or run the installed environment directly, with no activation step:
-
-```powershell
-.\.venv\Scripts\python.exe -m uoft_mcp
-```
-
 The installed `uoft-mcp` command is another entry point. The process waits for an
 MCP client on stdin; a blank terminal is expected. Use Ctrl+C to stop a manual run.
 Stdout carries protocol messages only, and logging goes to stderr.
-
-## Connect an MCP Client
-
-For clients that accept an `mcpServers` configuration, use this shape with your
-absolute virtual-environment Python path. Your client may use a different settings
-format; the important parts are the executable and its arguments.
-
-```json
-{
-  "mcpServers": {
-    "uoft-timetable": {
-      "command": "C:\\Users\\Anthony\\Documents\\GitHub\\UofT-MCP\\.venv\\Scripts\\python.exe",
-      "args": ["-m", "uoft_mcp"]
-    }
-  }
-}
-```
-
-The package is installed into this environment, so the client does not need to
-start in the repository directory. There is no server URL or listening port.
 
 ## Tools
 

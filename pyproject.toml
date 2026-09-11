@@ -6,12 +6,21 @@ build-backend = "hatchling.build"
 name = "uoft-mcp"
 version = "0.1.0"
 description = "A small MCP wrapper for the UofT Timetable Builder API."
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "SleepyPandas" }]
+keywords = ["mcp", "uoft", "university-of-toronto", "timetable"]
 requires-python = ">=3.13"
 dependencies = [
     "httpx>=0.28,<1",
     "mcp>=2,<3",
     "pydantic>=2.11,<3",
 ]
+
+[project.urls]
+Homepage = "https://github.com/SleepyPandas/UofT-MCP"
+Issues = "https://github.com/SleepyPandas/UofT-MCP/issues"
+Repository = "https://github.com/SleepyPandas/UofT-MCP"
 
 [project.scripts]
 uoft-mcp = "uoft_mcp.server:main"
