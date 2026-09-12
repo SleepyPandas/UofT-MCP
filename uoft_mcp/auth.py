@@ -14,6 +14,7 @@ from uoft_mcp.auth_browser import (
     ServiceChoice,
 )
 from uoft_mcp.auth_store import EMPTY_STATE, SessionStore, SessionStoreError, merge_api_cookies
+from uoft_mcp.degree_explorer import DegreeExplorerEndpoint, DegreeExplorerError
 
 
 async def _store_call(function, *args):
@@ -180,6 +181,47 @@ class AuthManager:
                 )
                 await self._close_backend()
         return self.status()
+
+    async def read_degree_explorer(self, endpoint: DegreeExplorerEndpoint) -> Any:
+        """Reuse saved access for one read, serialized with refresh, login, and forget.
+
+        Reads never initiate login or wait for Duo. Only rotated cookies are saved;
+        academic response data stays transient and is returned to the calling tool.
+        """
+        if not isinstance(endpoint, DegreeExplorerEndpoint):
+            raise DegreeExplorerError("Unsupported Degree Explorer endpoint.")
+        if self._task is not None and not self._task.done():
+            raise DegreeExplorerError(
+                "UofT login is in progress. Check uoft_auth_status before retrying.",
+                "login_in_progress",
+            )
+        async with self._operation:
+            try:
+                await self._ensure_open(self._remember)
+                try:
+                    data = await self._backend.read_degree_explorer(endpoint)
+                except DegreeExplorerError as exc:
+                    self._record("degree_explorer", ProbeResult(exc.state, str(exc)))
+                    raise
+                else:
+                    self._record(
+                        "degree_explorer", ProbeResult("connected", "Connection verified.")
+                    )
+                    return data
+                finally:
+                    await self._checkpoint()
+            except DegreeExplorerError:
+                raise
+            except (BrowserError, SessionStoreError) as exc:
+                await self._close_backend()
+                raise DegreeExplorerError(str(exc), "unavailable") from None
+            except Exception:
+                await self._close_backend()
+                raise DegreeExplorerError(
+                    "Could not read Degree Explorer using the local session. "
+                    "Check uoft_auth_status before retrying.",
+                    "unavailable",
+                ) from None
 
     async def wait_for_login(self) -> dict:
         """Used by the terminal and tests; MCP login itself never waits for Duo."""
