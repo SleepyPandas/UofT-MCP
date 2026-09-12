@@ -84,6 +84,9 @@ Stdout carries protocol messages only, and logging goes to stderr.
 | `generate_timetable` | Required `plans` array. Each plan has `courses` (`course_id` plus `activity_types`), optional `preference` of `early`, `balanced`, or `late`, and optional `blocked_times`. |
 | `save_timetable` | Required `timetable` object with `sessions`, `timetables`, and `plans`. Returns the share `id` plus a `share_url`. |
 | `retrieve_timetable` | Required `share_id` from `save_timetable`. |
+| `uoft_login` | Optional `service` of `degree_explorer`, `acorn`, or `both` (default), plus `remember=true`. Starts or reuses official browser login and returns while you complete Duo. |
+| `uoft_auth_status` | Optional `refresh=false`. Reports connection and login progress; `refresh=true` checks both services without opening a browser. |
+| `uoft_forget_session` | No arguments. Cancels login and removes locally saved UofT session state and its encryption key. |
 
 Each successful lookup, generation, and retrieve call returns one text block
 containing the complete upstream JSON. The wrapper preserves fields and arrays,
