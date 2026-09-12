@@ -1,20 +1,22 @@
 # UofT MCP
 
 A small Python MCP server for the public [UofT Timetable Builder](https://ttb.utoronto.ca/)
-API, with reusable UofT login for Degree Explorer and ACORN. It exposes thirteen
-tools over local stdio using the
+API, with read-only Degree Explorer access and reusable UofT login for Degree
+Explorer and ACORN. It exposes twenty-two tools over local stdio using the
 [official MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk): ten
-public timetable tools and three local authentication controls.
+public timetable tools, nine Degree Explorer reads, and three local authentication controls.
 
-> **Work in progress:** ACORN and Degree Explorer authentication is available, but
-> their student-data and planning tools are still under development. The current
-> ACORN and Degree Explorer controls only connect, check, and forget local sessions.
+> **Work in progress:** Degree Explorer reads are available in this checkout.
+> Degree Explorer writes and ACORN student-data tools are not implemented.
 
 Public timetable tools require no login, API key, database, web server, or environment
 variables. This is an
 unofficial wrapper; it does not enroll students or write to ACORN. Saving a timetable
 creates an anonymous public share link on the Timetable Builder, not a personal
 account record.
+
+Read the [release notes](CHANGELOG.md) for the current version's scope and known
+limitations.
 
 ## Connect an MCP Client
 
@@ -45,7 +47,7 @@ URL, or listening port is needed. The first start can take longer while uv downl
 Python and the dependencies; later starts use its cache.
 
 To pin a release instead of following the newest release, use
-`"args": ["uoft-mcp==0.3.2"]`.
+`"args": ["uoft-mcp==0.4.0"]`.
 
 ## Local Development
 
@@ -72,8 +74,8 @@ Stdout carries protocol messages only, and logging goes to stderr.
 
 ## Connect Degree Explorer and ACORN
 
-This branch adds an authentication foundation; academic-data tools are not yet
-available. To try it from this checkout, install Chromium once:
+Degree Explorer tools reuse your saved UofT session to read academic records and
+existing plans. To try them from this checkout, install Chromium once:
 
 ```powershell
 uv run --locked python -m uoft_mcp auth setup
@@ -93,14 +95,14 @@ branch changes until a release):
 }
 ```
 
-Ask your assistant to **“Connect my UofT account to Degree Explorer and ACORN.”**
+Ask your assistant to **"Connect my UofT account to Degree Explorer and ACORN."**
 Complete the official UofT login and Duo prompts in the dedicated Chromium window.
 The window closes after connection checks finish. Login state is encrypted locally
 and reused after browser closure and MCP restarts, while UofT still accepts it.
 Passwords and Duo codes belong only on the official pages, never in chat or config.
 
-Use **“Check my UofT connection”** to verify access, or **“Forget my saved UofT
-session”** to delete local access. See [authentication setup and behavior](AUTHENTICATION.md)
+Use **"Check my UofT connection"** to verify access, or **"Forget my saved UofT
+session"** to delete local access. See [authentication setup and behavior](AUTHENTICATION.md)
 for terminal commands, memory-only sessions, expiry, and troubleshooting.
 
 ## Tools
@@ -120,6 +122,19 @@ for terminal commands, memory-only sessions, expiry, and troubleshooting.
 | `uoft_login` | Optional `service` of `degree_explorer`, `acorn`, or `both` (default), plus `remember=true`. Starts or reuses official browser login and returns while you complete Duo. |
 | `uoft_auth_status` | Optional `refresh=false`. Reports connection and login progress; `refresh=true` checks both services without opening a browser. |
 | `uoft_forget_session` | No arguments. Cancels login and removes locally saved UofT session state and its encryption key. |
+| `degree_explorer_get_academic_history` | No arguments. Read course history, sessions, marks, and requirements after Degree Explorer login. |
+| `degree_explorer_get_student_data` | No arguments. Read the payload used by Degree Explorer's Current Status page. |
+| `degree_explorer_get_student_record` | No arguments. Read the record payload used by Current Status; it is not a certified transcript. |
+| `degree_explorer_get_student_user_data` | No arguments. Read menu/session user metadata. |
+| `degree_explorer_get_student_menu` | No arguments. Read available Degree Explorer navigation entries. |
+| `degree_explorer_get_messages` | No arguments. Read the UI string catalog, not a student inbox. |
+| `degree_explorer_get_session_timeouts` | No arguments. Read client timeout settings; they do not extend a session. |
+| `degree_explorer_get_planner` | No arguments. Read existing planner timelines and primary-plan flags. |
+| `degree_explorer_get_cell_details` | No arguments. Read the unparameterized planner popup endpoint; it cannot target a cell. |
+
+See [Degree Explorer tools and workflow](DEGREE_EXPLORER.md) for all nine authenticated
+reads, their fixed API routes, and limitations. Each accepts `{}` and reads only
+the connected student's account.
 
 Each successful lookup, generation, and retrieve call returns one text block
 containing the complete upstream JSON. The wrapper preserves fields and arrays,
@@ -204,11 +219,15 @@ uv run --locked ruff check .
 uv run --locked ruff format --check .
 ```
 
-The tests run offline. They cover all thirteen tools, request mapping, raw JSON
+The tests run offline. They cover all twenty-two tools, request mapping, raw JSON
 preservation, validation, HTTP errors, timeouts, connection errors, invalid JSON,
 shared-client cleanup, MCP discovery, and actual stdio subprocesses. Authentication
 tests cover encrypted persistence, restoration, browser lifecycle, expiry, locking,
 CLI controls, and sanitized status results using synthetic state and fake backends.
+Degree Explorer tests also cover all nine GET mappings, MCP schemas and annotations,
+JSON preservation, sanitized errors, response disposal, saved-session reuse, and
+serialization with login and forget. These reads have not been verified against a
+live authenticated account in this change.
 
 Previous timetable verification: 50 tests passed. Live checks of lookup, `generateYear`, `tiny/shorten`,
 and `tiny/retrieve` succeeded, including generating CSC258H1 and CSC311H1, saving an
