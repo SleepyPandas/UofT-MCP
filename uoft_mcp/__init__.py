@@ -1,1 +1,1 @@
-"""MCP tools for the University of Toronto Timetable Builder public API."""
+"""MCP tools for UofT Timetable Builder and read-only Degree Explorer data."""

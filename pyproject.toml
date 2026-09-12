@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "uoft-mcp"
-version = "0.3.2"
-description = "A small MCP wrapper for the UofT Timetable Builder API."
+version = "0.4.0"
+description = "MCP tools for UofT Timetable Builder and read-only Degree Explorer data."
 readme = "README.md"
 license = "MIT"
 authors = [{ name = "SleepyPandas" }]
-keywords = ["mcp", "uoft", "university-of-toronto", "timetable"]
+keywords = ["acorn", "degree-explorer", "mcp", "timetable", "uoft", "university-of-toronto"]
 requires-python = ">=3.13"
 dependencies = [
     "cryptography>=44,<49",
@@ -42,6 +42,7 @@ testpaths = ["tests"]
 [tool.ruff]
 target-version = "py313"
 line-length = 100
+extend-exclude = [".test-*", "pytest-codex-*"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]

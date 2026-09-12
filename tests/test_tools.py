@@ -23,6 +23,15 @@ TOOL_NAMES = {
     "uoft_login",
     "uoft_auth_status",
     "uoft_forget_session",
+    "degree_explorer_get_academic_history",
+    "degree_explorer_get_student_data",
+    "degree_explorer_get_student_record",
+    "degree_explorer_get_student_user_data",
+    "degree_explorer_get_student_menu",
+    "degree_explorer_get_messages",
+    "degree_explorer_get_session_timeouts",
+    "degree_explorer_get_planner",
+    "degree_explorer_get_cell_details",
 }
 READ_ONLY_TOOLS = TOOL_NAMES - {"save_timetable", "uoft_login", "uoft_forget_session"}
 TIMETABLE_STATE = {
