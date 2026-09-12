@@ -24,12 +24,8 @@ Course lookup and generated timetables come from UofT on each call.
 
 | File | Responsibility |
 | --- | --- |
-| `uoft_mcp/server.py` | Defines ten timetable tools and three authentication controls, sharing resources through `AppContext`. |
+| `uoft_mcp/server.py` | Defines the ten tools, maps arguments, and runs the MCP server. |
 | `uoft_mcp/client.py` | Sets the API URL, request headers, timeout, and HTTP error handling. |
-| `uoft_mcp/auth.py` | Owns nonblocking login tasks, connection status, session checkpoints, and cleanup. |
-| `uoft_mcp/auth_browser.py` | Opens the official login pages and probes fixed service endpoints with Playwright. |
-| `uoft_mcp/auth_store.py` | Encrypts browser state, uses an OS keyring, and locks access across processes. |
-| `uoft_mcp/cli.py` | Dispatches default stdio startup and explicit `auth` terminal commands. |
 | `uoft_mcp/__main__.py` | Makes `python -m uoft_mcp` call the server's `main()` function. |
 | `uoft_mcp/__init__.py` | Marks the directory as an importable package. |
 | `pyproject.toml` | Package metadata, dependencies, command entry point, and test/lint settings. |
@@ -39,10 +35,9 @@ Course lookup and generated timetables come from UofT on each call.
 | `tests/` | Offline tests of the API mappings and MCP interface, including real process pipes. |
 | `timetable_builder.json` | Your original endpoint reference; not loaded at runtime. |
 
-Runtime dependencies include `mcp` (the protocol), `httpx` (public HTTP), `pydantic`
-(argument constraints), `playwright` (browser and authenticated HTTP), `cryptography`
-(Fernet), `keyring` (OS secret storage), `platformdirs` (user data paths), and
-`filelock` (process locking). `pytest` and `ruff` are development tools.
+Runtime dependencies are `mcp` (the protocol), `httpx` (HTTP), and `pydantic`
+(argument constraints). `pytest` and `ruff` are development tools. Other packages in
+the lockfile are dependencies of those libraries.
 
 ## Reading a Tool
 
@@ -79,9 +74,7 @@ it the same way the website does, and POSTs the result as `text/plain` to
 
 `create_server()` builds the server without making an API request. Its lifespan
 opens one `httpx.AsyncClient` when the server starts, shares its connection pool
-across tool calls, and closes it when the server stops. `AppContext` also holds a
-lazy `AuthManager`; startup and public timetable tools do not launch Playwright,
-open a keyring, read session files, or acquire the authentication lock.
+across tool calls, and closes it when the server stops.
 
 Every request has a 30-second HTTPX timeout for network operations. Headers include
 JSON acceptance, a browser-like user agent, and the Timetable Builder origin and
@@ -102,27 +95,6 @@ upstream error bodies are not exposed. A successful HTTP response's application-
 
 Do not add `print()` debugging to the server: stdout is its protocol connection.
 Use Python's `logging` module, which is configured to write to stderr.
-
-## Authentication Lifecycle
-
-`uoft_login` schedules a task and returns progress metadata immediately. The manager
-checks stored sessions first. It opens a visible browser only for services that
-need login; the user completes the official authentication UI. Each verified app
-gets an immediate encrypted checkpoint. When login finishes, Chromium closes and
-an API request context continues using the same cookies and browser user agent.
-
-An async operation lock serializes login, refresh, and forget within a process;
-an OS file lock guards the shared saved session across processes. Secure storage
-operations run off the event loop, and cancellation waits for an in-flight storage
-operation before releasing ownership. Shutdown cancels pending login and disposes
-the browser, request context, and lock. User authentication state is never included
-in tool output or exception messages.
-
-Auth tools return JSON text containing service status, login progress, and
-persistence metadata. Recoverable login failures are represented in that status,
-not as student payloads. `create_server(auth_factory=...)` supports offline auth
-integration tests. See [AUTHENTICATION.md](AUTHENTICATION.md) for user-facing behavior
-and the live verification procedure.
 
 ## Adding Another Endpoint
 
