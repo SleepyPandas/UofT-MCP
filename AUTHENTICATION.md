@@ -1,8 +1,9 @@
 # UofT session reuse
 
-This branch prepares the MCP for Degree Explorer and ACORN. It can sign in, verify
-connections, remember a session, and forget it. It does not yet expose academic
-records, enrolment, or account changes as tools.
+The MCP can sign in to Degree Explorer and ACORN, verify connections, remember a
+session, and forget it. [Degree Explorer read tools](DEGREE_EXPLORER.md) reuse this
+session for academic records and existing plans. Enrolment, account changes, and
+ACORN academic-data tools are not implemented.
 
 ## First connection
 

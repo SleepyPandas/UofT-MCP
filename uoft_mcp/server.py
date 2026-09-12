@@ -1,4 +1,4 @@
-"""Public timetable tools and local UofT authentication controls over stdio."""
+"""Public timetable tools, read-only Degree Explorer, and UofT login over stdio."""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from uoft_mcp.auth import AuthManager
 from uoft_mcp.auth_browser import ServiceChoice
 from uoft_mcp.client import TimetableAPIError, create_http_client, request_json
+from uoft_mcp.degree_explorer import DegreeExplorerEndpoint, DegreeExplorerError
 
 NonEmptyString = Annotated[str, Field(min_length=1, pattern=r"\S")]
 NonNegativeInt = Annotated[int, Field(ge=0)]
@@ -30,6 +31,9 @@ ClockTime = Annotated[str, Field(pattern=r"^\d{1,2}:\d{2}$")]
 ObjectId = Annotated[str, Field(pattern=r"^[A-Za-z0-9]+$")]
 ShareId = Annotated[str, Field(min_length=1, pattern=r"^[A-Za-z0-9]+$")]
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True)
+DEGREE_EXPLORER_READ = ToolAnnotations(
+    read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=True
+)
 SAVE_SHARE = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False)
 TTB_ORIGIN = "https://ttb.utoronto.ca"
 TIMETABLE_STATE_KEYS = frozenset({"sessions", "timetables", "plans"})
@@ -56,6 +60,15 @@ class GenerationPlan(BaseModel):
     courses: Annotated[list[GenerationCourse], Field(min_length=1)]
     preference: TimePreference = "balanced"
     blocked_times: list[BlockedTime] | None = None
+
+
+async def _degree_explorer(ctx: Context[AppContext], endpoint: DegreeExplorerEndpoint) -> str:
+    """Return complete upstream JSON as MCP text; surface sanitized tool errors."""
+    try:
+        data = await ctx.request_context.lifespan_context.auth.read_degree_explorer(endpoint)
+    except DegreeExplorerError as exc:
+        raise ToolError(str(exc)) from None
+    return json.dumps(data, ensure_ascii=False)
 
 
 async def _request(
@@ -217,13 +230,18 @@ def create_server(
         instructions=(
             "Look up current sessions and reference data before choosing filters. "
             "Course details include the course id needed by generate_timetable. "
-            "Tools return the public UofT timetable API's complete JSON as text. "
+            "Data tools return complete upstream JSON as text. "
             "This server does not enroll students. "
             "Use uoft_login to connect Degree Explorer or ACORN in an official browser window. "
             "Never ask for credentials or Duo codes in chat. Login returns immediately; "
             "check uoft_auth_status for progress, waiting a few seconds between checks. "
             "Only retry login on user request. uoft_forget_session removes local saved access. "
-            "Academic data tools are not yet available."
+            "degree_explorer_* tools only read the connected student's Degree Explorer data. "
+            "They reuse saved access without opening a browser and accept no arguments. "
+            "Choose academic_history for courses/marks, student_data or student_record for "
+            "Current Status, and planner for existing timelines. Fetch only the data needed. "
+            "Cell selectors are undocumented; get_cell_details cannot select a specific cell. "
+            "No Degree Explorer writes, enrolment changes, or ACORN data tools are available."
         ),
         lifespan=lifespan,
     )
@@ -387,6 +405,105 @@ def create_server(
     async def retrieve_timetable(ctx: Context[AppContext], share_id: ShareId) -> str:
         """Load a previously saved Timetable Builder state by its public share id."""
         return await _request(ctx, "GET", "tiny/retrieve", params={"id": share_id})
+
+    @server.tool(structured_output=False, annotations=DEGREE_EXPLORER_READ)
+    async def degree_explorer_get_academic_history(ctx: Context[AppContext]) -> str:
+        """Read the connected student's course history, sessions, marks, and requirement data.
+
+        Use for completed coursework and academic-history questions. No arguments or filters;
+        returns complete upstream JSON as text, including arrays and status fields.
+        Requires Degree Explorer login via uoft_login; reuses saved access without a browser.
+        Performs one GET with no retries and reports authentication/API failures as tool errors.
+        """
+        return await _degree_explorer(ctx, DegreeExplorerEndpoint.ACADEMIC_HISTORY)
+
+    @server.tool(structured_output=False, annotations=DEGREE_EXPLORER_READ)
+    async def degree_explorer_get_student_data(ctx: Context[AppContext]) -> str:
+        """Read the connected student's payload used by Degree Explorer's Current Status page.
+
+        Use for current academic status; use degree_explorer_get_academic_history for marks.
+        No arguments. Returns complete upstream JSON as text; field meanings follow the API.
+        Requires Degree Explorer login via uoft_login. Reuses saved access without a browser;
+        one GET, no retries, and authentication/API failures become tool errors.
+        """
+        return await _degree_explorer(ctx, DegreeExplorerEndpoint.STUDENT_DATA)
+
+    @server.tool(structured_output=False, annotations=DEGREE_EXPLORER_READ)
+    async def degree_explorer_get_student_record(ctx: Context[AppContext]) -> str:
+        """Read the connected student's record payload used by Degree Explorer Current Status.
+
+        Use when the underlying record is needed beyond degree_explorer_get_student_data.
+        This is not a certified transcript. No arguments; complete upstream JSON as text.
+        Requires Degree Explorer login via uoft_login. Reuses saved access without a browser;
+        one GET, no retries, and authentication/API failures become tool errors.
+        """
+        return await _degree_explorer(ctx, DegreeExplorerEndpoint.STUDENT_RECORD)
+
+    @server.tool(structured_output=False, annotations=DEGREE_EXPLORER_READ)
+    async def degree_explorer_get_student_user_data(ctx: Context[AppContext]) -> str:
+        """Read the connected student's Degree Explorer menu/session user metadata.
+
+        Use for app-shell user context, not course history; use uoft_auth_status to check login.
+        No arguments. Returns complete upstream JSON as text and may include student identity.
+        Requires Degree Explorer login via uoft_login. Reuses saved access without a browser;
+        one GET, no retries, and authentication/API failures become tool errors.
+        """
+        return await _degree_explorer(ctx, DegreeExplorerEndpoint.STUDENT_USER_DATA)
+
+    @server.tool(structured_output=False, annotations=DEGREE_EXPLORER_READ)
+    async def degree_explorer_get_student_menu(ctx: Context[AppContext]) -> str:
+        """Read the connected student's available Degree Explorer navigation entries.
+
+        Use to inspect app navigation, not degree completion. No arguments.
+        Returns complete upstream JSON as text; the observed menu root is an array.
+        Requires Degree Explorer login via uoft_login. Reuses saved access without a browser;
+        one GET, no retries, and authentication/API failures become tool errors.
+        """
+        return await _degree_explorer(ctx, DegreeExplorerEndpoint.STUDENT_MENU)
+
+    @server.tool(structured_output=False, annotations=DEGREE_EXPLORER_READ)
+    async def degree_explorer_get_messages(ctx: Context[AppContext]) -> str:
+        """Read Degree Explorer's UI string catalog, not a student inbox or correspondence.
+
+        Use to interpret interface labels or message keys returned by other Degree Explorer
+        tools. No arguments or search filter. Returns complete upstream JSON as text.
+        Requires Degree Explorer login via uoft_login. Reuses saved access without a browser;
+        one GET, no retries, and authentication/API failures become tool errors.
+        """
+        return await _degree_explorer(ctx, DegreeExplorerEndpoint.MESSAGES)
+
+    @server.tool(structured_output=False, annotations=DEGREE_EXPLORER_READ)
+    async def degree_explorer_get_session_timeouts(ctx: Context[AppContext]) -> str:
+        """Read Degree Explorer's web-client timeout settings; this does not extend a session.
+
+        Use for timeout configuration, not remaining login lifetime or proof of authentication.
+        Use uoft_auth_status for connection status. No arguments; complete JSON returned as text.
+        Requires Degree Explorer login via uoft_login. Reuses saved access without a browser;
+        one GET, no retries, and authentication/API failures become tool errors.
+        """
+        return await _degree_explorer(ctx, DegreeExplorerEndpoint.SESSION_TIMEOUTS)
+
+    @server.tool(structured_output=False, annotations=DEGREE_EXPLORER_READ)
+    async def degree_explorer_get_planner(ctx: Context[AppContext]) -> str:
+        """Read the connected student's existing planner timelines and primary-plan flags.
+
+        Use to inspect saved plans. Does not create, edit, select, or evaluate a plan.
+        No arguments or plan filter. Returns complete upstream JSON as text.
+        Requires Degree Explorer login via uoft_login. Reuses saved access without a browser;
+        one GET, no retries, and authentication/API failures become tool errors.
+        """
+        return await _degree_explorer(ctx, DegreeExplorerEndpoint.PLANNER)
+
+    @server.tool(structured_output=False, annotations=DEGREE_EXPLORER_READ)
+    async def degree_explorer_get_cell_details(ctx: Context[AppContext]) -> str:
+        """Read the planner cell-popup endpoint with no arguments, as documented in the registry.
+
+        Cell selectors are undocumented: this cannot target a particular timeline or cell.
+        Use degree_explorer_get_planner first. May be empty or fail if upstream needs UI context.
+        Returns complete upstream JSON as text. Requires Degree Explorer login via uoft_login.
+        Reuses saved access without a browser; one GET, no retries; failures become tool errors.
+        """
+        return await _degree_explorer(ctx, DegreeExplorerEndpoint.CELL_DETAILS)
 
     @server.tool(
         structured_output=False,

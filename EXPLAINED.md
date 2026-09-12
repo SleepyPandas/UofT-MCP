@@ -111,8 +111,8 @@ need login; the user completes the official authentication UI. Each verified app
 gets an immediate encrypted checkpoint. When login finishes, Chromium closes and
 an API request context continues using the same cookies and browser user agent.
 
-An async operation lock serializes login, refresh, and forget within a process;
-an OS file lock guards the shared saved session across processes. Secure storage
+An async operation lock serializes login, refresh, Degree Explorer reads, and forget
+within a process; an OS file lock guards the shared saved session across processes. Secure storage
 operations run off the event loop, and cancellation waits for an in-flight storage
 operation before releasing ownership. Shutdown cancels pending login and disposes
 the browser, request context, and lock. User authentication state is never included
@@ -123,6 +123,25 @@ persistence metadata. Recoverable login failures are represented in that status,
 not as student payloads. `create_server(auth_factory=...)` supports offline auth
 integration tests. See [AUTHENTICATION.md](AUTHENTICATION.md) for user-facing behavior
 and the live verification procedure.
+
+## Degree Explorer reads
+
+`degree_explorer.py` defines an enum of nine fixed GET routes from the
+[registry snapshot](https://github.com/SleepyPandas/unofficial-UofT-api-registry/blob/48dc6239b35f36cae0e662b25ec0c61000eab3fd/json/degree_explorer.json).
+`AuthManager.read_degree_explorer` opens saved access lazily, holds the operation
+lock, and calls the Playwright adapter. An active login yields an immediate tool
+error instead of waiting for Duo. Reads never launch a browser or follow redirects.
+After a read, rotated cookies are checkpointed through the existing encrypted store;
+student payloads are returned to the MCP client and never added to that store.
+
+The adapter rejects non-allowlisted routes and uses the auth response classifier
+for expired sessions, access denial, outages, and invalid responses. Successful
+reads preserve any JSON root, including menu arrays. Playwright response bodies
+are disposed in `finally`. `server.py` maps sanitized failures to `ToolError` and
+returns successful JSON in one text block with `structured_output=False`, matching
+the existing tools. Tests in `test_degree_explorer.py` and
+`test_degree_explorer_tools.py` cover the adapter and actual MCP calls with synthetic
+responses. See [the tool guide](DEGREE_EXPLORER.md) for scope and live-test limitations.
 
 ## Adding Another Endpoint
 
