@@ -41,7 +41,7 @@ URL, or listening port is needed. The first start can take longer while uv downl
 Python and the dependencies; later starts use its cache.
 
 To pin a release instead of following the newest release, use
-`"args": ["uoft-mcp==0.2.0"]`.
+`"args": ["uoft-mcp==0.3.0"]`.
 
 ## Local Development
 
