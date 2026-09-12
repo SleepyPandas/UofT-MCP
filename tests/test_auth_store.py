@@ -150,9 +150,11 @@ def test_failed_atomic_save_keeps_previous_state(tmp_path, state, monkeypatch):
 
 
 def test_cookie_rotation_preserves_browser_storage(state):
+    state["user_agent"] = "Browser user agent"
     updated = merge_api_cookies(state, {"cookies": [], "origins": []})
     assert updated["cookies"] == []
     assert updated["origins"] == state["origins"]
+    assert updated["user_agent"] == state["user_agent"]
     updated["origins"].clear()
     assert state["origins"]
 
