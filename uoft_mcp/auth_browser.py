@@ -22,7 +22,7 @@ SERVICES = {
         "degree_explorer",
         "https://degreeexplorer.utoronto.ca/",
         "https://degreeexplorer.utoronto.ca/degreeExplorer/rest/dxMenu/getStudentMenu",
-        dict,
+        list,  # Live verification: the menu is an array, unlike the registry client's hint.
     ),
     "acorn": Service(
         "acorn",
