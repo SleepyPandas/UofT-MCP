@@ -9,7 +9,6 @@ __pycache__/
 # Test, lint, and build output
 .pytest_cache/
 .pytest-tmp/
-.test-auth-*/
 .ruff_cache/
 .coverage
 htmlcov/
