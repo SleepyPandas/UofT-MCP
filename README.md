@@ -15,6 +15,9 @@ unofficial wrapper; it does not enroll students or write to ACORN. Saving a time
 creates an anonymous public share link on the Timetable Builder, not a personal
 account record.
 
+Read the [release notes](CHANGELOG.md) for the current version's scope and known
+limitations.
+
 ## Connect an MCP Client
 
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then add this
@@ -44,7 +47,7 @@ URL, or listening port is needed. The first start can take longer while uv downl
 Python and the dependencies; later starts use its cache.
 
 To pin a release instead of following the newest release, use
-`"args": ["uoft-mcp==0.3.2"]`.
+`"args": ["uoft-mcp==0.4.0"]`.
 
 ## Local Development
 
@@ -92,14 +95,14 @@ branch changes until a release):
 }
 ```
 
-Ask your assistant to **“Connect my UofT account to Degree Explorer and ACORN.”**
+Ask your assistant to **"Connect my UofT account to Degree Explorer and ACORN."**
 Complete the official UofT login and Duo prompts in the dedicated Chromium window.
 The window closes after connection checks finish. Login state is encrypted locally
 and reused after browser closure and MCP restarts, while UofT still accepts it.
 Passwords and Duo codes belong only on the official pages, never in chat or config.
 
-Use **“Check my UofT connection”** to verify access, or **“Forget my saved UofT
-session”** to delete local access. See [authentication setup and behavior](AUTHENTICATION.md)
+Use **"Check my UofT connection"** to verify access, or **"Forget my saved UofT
+session"** to delete local access. See [authentication setup and behavior](AUTHENTICATION.md)
 for terminal commands, memory-only sessions, expiry, and troubleshooting.
 
 ## Tools
@@ -119,6 +122,15 @@ for terminal commands, memory-only sessions, expiry, and troubleshooting.
 | `uoft_login` | Optional `service` of `degree_explorer`, `acorn`, or `both` (default), plus `remember=true`. Starts or reuses official browser login and returns while you complete Duo. |
 | `uoft_auth_status` | Optional `refresh=false`. Reports connection and login progress; `refresh=true` checks both services without opening a browser. |
 | `uoft_forget_session` | No arguments. Cancels login and removes locally saved UofT session state and its encryption key. |
+| `degree_explorer_get_academic_history` | No arguments. Read course history, sessions, marks, and requirements after Degree Explorer login. |
+| `degree_explorer_get_student_data` | No arguments. Read the payload used by Degree Explorer's Current Status page. |
+| `degree_explorer_get_student_record` | No arguments. Read the record payload used by Current Status; it is not a certified transcript. |
+| `degree_explorer_get_student_user_data` | No arguments. Read menu/session user metadata. |
+| `degree_explorer_get_student_menu` | No arguments. Read available Degree Explorer navigation entries. |
+| `degree_explorer_get_messages` | No arguments. Read the UI string catalog, not a student inbox. |
+| `degree_explorer_get_session_timeouts` | No arguments. Read client timeout settings; they do not extend a session. |
+| `degree_explorer_get_planner` | No arguments. Read existing planner timelines and primary-plan flags. |
+| `degree_explorer_get_cell_details` | No arguments. Read the unparameterized planner popup endpoint; it cannot target a cell. |
 
 See [Degree Explorer tools and workflow](DEGREE_EXPLORER.md) for all nine authenticated
 reads, their fixed API routes, and limitations. Each accepts `{}` and reads only
