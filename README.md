@@ -1,13 +1,11 @@
-# UofT MCP
+# UofT Timetable Builder MCP
 
 A small Python MCP server for the public [UofT Timetable Builder](https://ttb.utoronto.ca/)
-API, with reusable UofT login for Degree Explorer and ACORN. It exposes thirteen
-tools over local stdio using the
-[official MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk): ten
-public timetable tools and three local authentication controls.
+API. It exposes ten tools over local stdio using the
+[official MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk): seven
+course-lookup tools, a schedule solver wrapper, and share save/retrieve tools.
 
-Public timetable tools require no login, API key, database, web server, or environment
-variables. This is an
+No API key, database, web server, or environment variables are required. This is an
 unofficial wrapper; it does not enroll students or write to ACORN. Saving a timetable
 creates an anonymous public share link on the Timetable Builder, not a personal
 account record.
@@ -66,39 +64,6 @@ The installed `uoft-mcp` command is another entry point. The process waits for a
 MCP client on stdin; a blank terminal is expected. Use Ctrl+C to stop a manual run.
 Stdout carries protocol messages only, and logging goes to stderr.
 
-## Connect Degree Explorer and ACORN
-
-This branch adds an authentication foundation; academic-data tools are not yet
-available. To try it from this checkout, install Chromium once:
-
-```powershell
-uv run --locked python -m uoft_mcp auth setup
-```
-
-Connect your MCP client to this local checkout (the published package does not gain
-branch changes until a release):
-
-```json
-{
-  "mcpServers": {
-    "uoft": {
-      "command": "uv",
-      "args": ["--directory", "C:/path/to/UofT-MCP", "run", "--locked", "python", "-m", "uoft_mcp"]
-    }
-  }
-}
-```
-
-Ask your assistant to **“Connect my UofT account to Degree Explorer and ACORN.”**
-Complete the official UofT login and Duo prompts in the dedicated Chromium window.
-The window closes after connection checks finish. Login state is encrypted locally
-and reused after browser closure and MCP restarts, while UofT still accepts it.
-Passwords and Duo codes belong only on the official pages, never in chat or config.
-
-Use **“Check my UofT connection”** to verify access, or **“Forget my saved UofT
-session”** to delete local access. See [authentication setup and behavior](AUTHENTICATION.md)
-for terminal commands, memory-only sessions, expiry, and troubleshooting.
-
 ## Tools
 
 | Tool | Arguments and purpose |
@@ -113,9 +78,6 @@ for terminal commands, memory-only sessions, expiry, and troubleshooting.
 | `generate_timetable` | Required `plans` array. Each plan has `courses` (`course_id` plus `activity_types`), optional `preference` of `early`, `balanced`, or `late`, and optional `blocked_times`. |
 | `save_timetable` | Required `timetable` object with `sessions`, `timetables`, and `plans`. Returns the share `id` plus a `share_url`. |
 | `retrieve_timetable` | Required `share_id` from `save_timetable`. |
-| `uoft_login` | Optional `service="both"` (`degree_explorer`, `acorn`, or `both`) and `remember=true`. Starts or reuses browser login and returns promptly. |
-| `uoft_auth_status` | Optional `refresh=false`. Reports login progress and connection metadata; `true` verifies both services without opening a login window. |
-| `uoft_forget_session` | No arguments. Cancels login and deletes both services' local saved state and encryption key. |
 
 Each successful lookup, generation, and retrieve call returns one text block
 containing the complete upstream JSON. The wrapper preserves fields and arrays,
@@ -200,18 +162,14 @@ uv run --locked ruff check .
 uv run --locked ruff format --check .
 ```
 
-The tests run offline. They cover all thirteen tools, request mapping, raw JSON
+The tests run offline. They cover all ten tools, request mapping, raw JSON
 preservation, validation, HTTP errors, timeouts, connection errors, invalid JSON,
-shared-client cleanup, MCP discovery, and actual stdio subprocesses. Authentication
-tests cover encrypted persistence, restoration, browser lifecycle, expiry, locking,
-CLI controls, and sanitized status results using synthetic state and fake backends.
+shared-client cleanup, MCP discovery, and actual stdio subprocesses.
 
-Previous timetable verification: 50 tests passed. Live checks of lookup, `generateYear`, `tiny/shorten`,
+Verification: 50 tests passed. Live checks of lookup, `generateYear`, `tiny/shorten`,
 and `tiny/retrieve` succeeded, including generating CSC258H1 and CSC311H1, saving an
 anonymous share, and retrieving that share. Live requests are deliberately not part
 of the test suite, so tests remain reproducible.
-
-Current authentication verification is recorded in [AUTHENTICATION.md](AUTHENTICATION.md#verification).
 
 ## API Notes
 

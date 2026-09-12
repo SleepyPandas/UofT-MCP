@@ -1,11 +1,10 @@
-"""Public timetable tools and local UofT authentication controls over stdio."""
-
-from __future__ import annotations
+"""MCP tools mapping directly to Timetable Builder lookup, generation, and sharing endpoints."""
 
 import json
-from collections.abc import AsyncIterator, Callable
+import logging
+import sys
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
 from typing import Annotated, Any, Literal, Never
 from urllib.parse import quote
 
@@ -16,8 +15,6 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 
-from uoft_mcp.auth import AuthManager
-from uoft_mcp.auth_browser import ServiceChoice
 from uoft_mcp.client import TimetableAPIError, create_http_client, request_json
 
 NonEmptyString = Annotated[str, Field(min_length=1, pattern=r"\S")]
@@ -59,7 +56,7 @@ class GenerationPlan(BaseModel):
 
 
 async def _request(
-    ctx: Context[AppContext],
+    ctx: Context[httpx.AsyncClient],
     method: str,
     path: str,
     *,
@@ -82,7 +79,7 @@ async def _request(
 
 
 async def _request_data(
-    ctx: Context[AppContext],
+    ctx: Context[httpx.AsyncClient],
     method: str,
     path: str,
     *,
@@ -94,7 +91,7 @@ async def _request_data(
     """Call one fixed Timetable Builder path and return the parsed JSON."""
     try:
         return await request_json(
-            ctx.request_context.lifespan_context.timetable,
+            ctx.request_context.lifespan_context,
             method,
             path,
             params=params,
@@ -189,63 +186,44 @@ def _generation_body(plans: list[GenerationPlan]) -> list[dict[str, Any]]:
     ]
 
 
-@dataclass
-class AppContext:
-    timetable: httpx.AsyncClient
-    auth: AuthManager
-
-
-def create_server(
-    transport: httpx.AsyncBaseTransport | None = None,
-    *,
-    auth_factory: Callable[[], AuthManager] = AuthManager,
-) -> MCPServer:
+def create_server(transport: httpx.AsyncBaseTransport | None = None) -> MCPServer:
     """Build a server; tests can substitute an httpx MockTransport for the public API."""
 
     @asynccontextmanager
-    async def lifespan(server: MCPServer) -> AsyncIterator[AppContext]:
+    async def lifespan(server: MCPServer) -> AsyncIterator[httpx.AsyncClient]:
         """Share one connection pool and close it when the MCP server stops."""
         async with create_http_client(transport) as client:
-            auth = auth_factory()
-            try:
-                yield AppContext(client, auth)
-            finally:
-                await auth.close()
+            yield client
 
     server = MCPServer(
-        "UofT MCP",
+        "UofT Timetable Builder",
         instructions=(
             "Look up current sessions and reference data before choosing filters. "
             "Course details include the course id needed by generate_timetable. "
             "Tools return the public UofT timetable API's complete JSON as text. "
-            "This server does not enroll students. "
-            "Use uoft_login to connect Degree Explorer or ACORN in an official browser window. "
-            "Never ask for credentials or Duo codes in chat. Login returns immediately; "
-            "check uoft_auth_status for progress, waiting a few seconds between checks. "
-            "Only retry login on user request. uoft_forget_session removes local saved access. "
-            "Academic data tools are not yet available."
+            "This server does not enroll students."
         ),
         lifespan=lifespan,
     )
 
     @server.tool(structured_output=False, annotations=READ_ONLY)
-    async def get_current_sessions(ctx: Context[AppContext]) -> str:
+    async def get_current_sessions(ctx: Context[httpx.AsyncClient]) -> str:
         """Get active academic sessions. Use non-header entries' values as session IDs."""
         return await _request(ctx, "GET", "current-session")
 
     @server.tool(structured_output=False, annotations=READ_ONLY)
-    async def get_reference_data(ctx: Context[AppContext]) -> str:
+    async def get_reference_data(ctx: Context[httpx.AsyncClient]) -> str:
         """Get division, campus, delivery-mode, and sorting reference values."""
         return await _request(ctx, "GET", "reference-data")
 
     @server.tool(structured_output=False, annotations=READ_ONLY)
-    async def get_divisions(ctx: Context[AppContext]) -> str:
+    async def get_divisions(ctx: Context[httpx.AsyncClient]) -> str:
         """List faculty/division codes; use returned values rather than campus abbreviations."""
         return await _request(ctx, "GET", "getMatchingDivisions")
 
     @server.tool(structured_output=False, annotations=READ_ONLY)
     async def search_departments(
-        ctx: Context[AppContext], term: NonEmptyString, divisions: NonEmptyString
+        ctx: Context[httpx.AsyncClient], term: NonEmptyString, divisions: NonEmptyString
     ) -> str:
         """Search departments by keyword and division code (for example computer, ARTSC)."""
         return await _request(
@@ -254,7 +232,7 @@ def create_server(
 
     @server.tool(structured_output=False, annotations=READ_ONLY)
     async def search_course_titles(
-        ctx: Context[AppContext],
+        ctx: Context[httpx.AsyncClient],
         term: NonEmptyString,
         divisions: NonEmptyString,
         sessions: NonEmptyString,
@@ -282,7 +260,7 @@ def create_server(
 
     @server.tool(structured_output=False, annotations=READ_ONLY)
     async def get_course_details(
-        ctx: Context[AppContext],
+        ctx: Context[httpx.AsyncClient],
         course_code: Annotated[str, Field(pattern=r"^[A-Za-z0-9]+$")],
         section_code: SectionCode | None = None,
     ) -> str:
@@ -301,7 +279,7 @@ def create_server(
 
     @server.tool(structured_output=False, annotations=READ_ONLY)
     async def search_courses(
-        ctx: Context[AppContext],
+        ctx: Context[httpx.AsyncClient],
         course_code: str = "",
         course_title: str = "",
         course_section_code: SectionCode | None = None,
@@ -342,7 +320,7 @@ def create_server(
 
     @server.tool(structured_output=False, annotations=READ_ONLY)
     async def generate_timetable(
-        ctx: Context[AppContext],
+        ctx: Context[httpx.AsyncClient],
         plans: Annotated[list[GenerationPlan], Field(min_length=1)],
     ) -> str:
         """Ask UofT's solver for conflict-free lecture, tutorial, and practical sections.
@@ -356,7 +334,7 @@ def create_server(
         return await _request(ctx, "POST", "generateYear", body=_generation_body(plans))
 
     @server.tool(structured_output=False, annotations=SAVE_SHARE)
-    async def save_timetable(ctx: Context[AppContext], timetable: dict[str, Any]) -> str:
+    async def save_timetable(ctx: Context[httpx.AsyncClient], timetable: dict[str, Any]) -> str:
         """Store a serialized Timetable Builder state and return a public share URL.
 
         timetable must be the TTB state object with sessions, timetables, and
@@ -384,58 +362,14 @@ def create_server(
         )
 
     @server.tool(structured_output=False, annotations=READ_ONLY)
-    async def retrieve_timetable(ctx: Context[AppContext], share_id: ShareId) -> str:
+    async def retrieve_timetable(ctx: Context[httpx.AsyncClient], share_id: ShareId) -> str:
         """Load a previously saved Timetable Builder state by its public share id."""
         return await _request(ctx, "GET", "tiny/retrieve", params={"id": share_id})
-
-    @server.tool(
-        structured_output=False,
-        annotations=ToolAnnotations(
-            read_only_hint=False, destructive_hint=False, idempotent_hint=False
-        ),
-    )
-    async def uoft_login(
-        ctx: Context[AppContext], service: ServiceChoice = "both", remember: bool = True
-    ) -> str:
-        """Start official UofT browser login, returning immediately while you complete Duo.
-
-        service is degree_explorer, acorn, or both. Saved sessions are reused when valid.
-        remember=False starts a fresh memory-only session without deleting saved sessions.
-        Never supply passwords or MFA codes through tools. Check uoft_auth_status for progress.
-        """
-        result = await ctx.request_context.lifespan_context.auth.login(service, remember)
-        return json.dumps(result, ensure_ascii=False)
-
-    @server.tool(structured_output=False, annotations=READ_ONLY)
-    async def uoft_auth_status(ctx: Context[AppContext], refresh: bool = False) -> str:
-        """Get connection and login progress without exposing credentials or student records.
-
-        refresh=True checks both services using saved cookies; it never opens a login window.
-        A saved cookie is not proof of a valid session. last_verified is historical, not expiry.
-        """
-        auth = ctx.request_context.lifespan_context.auth
-        result = await auth.refresh() if refresh else auth.status()
-        return json.dumps(result, ensure_ascii=False)
-
-    @server.tool(
-        structured_output=False,
-        annotations=ToolAnnotations(
-            read_only_hint=False, destructive_hint=True, idempotent_hint=True
-        ),
-    )
-    async def uoft_forget_session(ctx: Context[AppContext]) -> str:
-        """Cancel login and delete this MCP's local sessions and encryption key for both apps.
-
-        This closes managed authentication resources. It is not university-wide logout.
-        """
-        result = await ctx.request_context.lifespan_context.auth.forget()
-        return json.dumps(result, ensure_ascii=False)
 
     return server
 
 
 def main() -> None:
-    """Run stdio by default, or explicit auth commands through the terminal interface."""
-    from uoft_mcp.cli import main as cli_main
-
-    cli_main()
+    """Run local stdio; stdout is reserved exclusively for MCP protocol messages."""
+    logging.basicConfig(level=logging.INFO, stream=sys.stderr)
+    create_server().run(transport="stdio")
