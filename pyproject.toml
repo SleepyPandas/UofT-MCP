@@ -12,8 +12,12 @@ authors = [{ name = "SleepyPandas" }]
 keywords = ["mcp", "uoft", "university-of-toronto", "timetable"]
 requires-python = ">=3.13"
 dependencies = [
+    "cryptography>=44,<49",
+    "filelock>=3.18,<4",
     "httpx>=0.28,<1",
+    "keyring>=25.6,<26",
     "mcp>=2,<3",
+    "platformdirs>=4.3,<5",
     "pydantic>=2.11,<3",
 ]
 
