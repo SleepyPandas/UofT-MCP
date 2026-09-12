@@ -63,10 +63,10 @@ class OSKeyStore:
 
 def merge_api_cookies(browser_state: dict, api_state: dict) -> dict:
     """API contexts own current cookies; retain browser local storage unchanged."""
-    return {
-        "cookies": deepcopy(api_state["cookies"]),
-        "origins": deepcopy(browser_state.get("origins", [])),
-    }
+    merged = deepcopy(browser_state)
+    merged["cookies"] = deepcopy(api_state["cookies"])
+    merged["origins"] = deepcopy(browser_state.get("origins", []))
+    return merged
 
 
 class SessionStore:
