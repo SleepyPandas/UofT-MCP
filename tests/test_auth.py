@@ -234,8 +234,8 @@ async def test_unexpected_backend_error_is_sanitized(tmp_path):
 @pytest.mark.parametrize(
     "status,headers,body,expected",
     [
-        (200, {"content-type": "application/json"}, "{}", "connected"),
-        (200, {"content-type": "application/json"}, "[]", "unexpected_response"),
+        (200, {"content-type": "application/json"}, "{}", "unexpected_response"),
+        (200, {"content-type": "application/json"}, "[]", "connected"),
         (200, {"content-type": "application/json"}, "{bad", "unexpected_response"),
         (200, {"content-type": "text/html"}, '<input name="j_password">', "login_required"),
         (200, {"content-type": "text/html"}, "maintenance", "unexpected_response"),
