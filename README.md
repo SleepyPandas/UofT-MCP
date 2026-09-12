@@ -6,6 +6,10 @@ tools over local stdio using the
 [official MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk): ten
 public timetable tools and three local authentication controls.
 
+> **Work in progress:** ACORN and Degree Explorer authentication is available, but
+> their student-data and planning tools are still under development. The current
+> ACORN and Degree Explorer controls only connect, check, and forget local sessions.
+
 Public timetable tools require no login, API key, database, web server, or environment
 variables. This is an
 unofficial wrapper; it does not enroll students or write to ACORN. Saving a timetable
