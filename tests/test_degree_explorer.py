@@ -2,7 +2,7 @@
 
 import asyncio
 import json
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from test_auth import Keys, manager
@@ -13,7 +13,9 @@ from uoft_mcp.degree_explorer import BASE_URL, DegreeExplorerEndpoint, DegreeExp
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("endpoint", list(DegreeExplorerEndpoint))
-@pytest.mark.parametrize("payload", [{"nested": [None, True, "synthetic é"]}, [], None])
+@pytest.mark.parametrize(
+    "payload", [{"nested": [None, True, "synthetic é"]}, [], None, True, 42, "text"]
+)
 async def test_one_allowlisted_get_preserves_json_and_disposes(endpoint, payload):
     session = PlaywrightSession()
     response = Mock(
@@ -30,6 +32,26 @@ async def test_one_allowlisted_get_preserves_json_and_disposes(endpoint, payload
         timeout=30_000,
         max_redirects=0,
     )
+    response.dispose.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_read_parses_large_payload_only_once():
+    payload = {"courses": [{"id": index, "marks": [75, 80, 90]} for index in range(1000)]}
+    body = json.dumps(payload)
+    response = Mock(
+        status=200,
+        headers={"content-type": "application/json"},
+        text=AsyncMock(return_value=body),
+        dispose=AsyncMock(),
+    )
+    session = PlaywrightSession()
+    session.api = Mock(get=AsyncMock(return_value=response))
+    with patch("uoft_mcp.auth_browser.json.loads", wraps=json.loads) as parse:
+        assert (
+            await session.read_degree_explorer(DegreeExplorerEndpoint.ACADEMIC_HISTORY) == payload
+        )
+        parse.assert_called_once_with(body)
     response.dispose.assert_awaited_once()
 
 

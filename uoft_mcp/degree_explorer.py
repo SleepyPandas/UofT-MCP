@@ -1,10 +1,9 @@
 """Allowlisted Degree Explorer reads using the existing authenticated API context."""
 
-import json
 from enum import StrEnum
 from typing import Any
 
-from uoft_mcp.auth_browser import Service, classify_response
+from uoft_mcp.auth_browser import Service, classify_and_parse_response
 
 BASE_URL = "https://degreeexplorer.utoronto.ca/degreeExplorer/rest"
 
@@ -48,13 +47,15 @@ async def request_degree_explorer(api: Any, endpoint: DegreeExplorerEndpoint) ->
         body = await response.text()
         # Unlike the authentication probe, reads may return any valid JSON root.
         service = Service("degree_explorer", BASE_URL, BASE_URL + endpoint, object)
-        result = classify_response(service, response.status, response.headers, body)
+        result, payload = classify_and_parse_response(
+            service, response.status, response.headers, body
+        )
         if result.state != "connected":
             raise DegreeExplorerError(
                 f"Degree Explorer {endpoint} (HTTP {response.status}): {result.message}",
                 result.state,
             )
-        return json.loads(body)
+        return payload
     except DegreeExplorerError:
         raise
     except Exception:
