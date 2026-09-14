@@ -265,5 +265,3 @@ Current authentication verification is recorded in [AUTHENTICATION.md](AUTHENTIC
 - This API is not covered by an official support guarantee. Changes upstream may
   require updating the mappings. Successful HTTP responses are preserved as supplied,
   including any application-level status messages inside their JSON.
-
-For a walkthrough of the code and how to extend it, read [EXPLAINED.md](EXPLAINED.md).
