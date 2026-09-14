@@ -97,7 +97,9 @@ branch changes until a release):
 
 Ask your assistant to **"Connect my UofT account to Degree Explorer and ACORN."**
 Complete the official UofT login and Duo prompts in the dedicated Chromium window.
-The window closes after connection checks finish. Login state is encrypted locally
+After each service first verifies your login, the browser stays on that service for
+five more seconds, rechecks access, and captures the latest session before moving
+to the next service or closing. Login state is encrypted locally
 and reused after browser closure and MCP restarts, while UofT still accepts it.
 Passwords and Duo codes belong only on the official pages, never in chat or config.
 
@@ -218,6 +220,10 @@ uv run --locked pytest -q
 uv run --locked ruff check .
 uv run --locked ruff format --check .
 ```
+
+The [PR workflow](.github/workflows/tests.yml) runs these checks on pull requests
+targeting `main` or `master`, using Python 3.13 on Ubuntu. New commits cancel an
+older run for the same PR. Tests need no Chromium installation or UofT credentials.
 
 The tests run offline. They cover all twenty-two tools, request mapping, raw JSON
 preservation, validation, HTTP errors, timeouts, connection errors, invalid JSON,

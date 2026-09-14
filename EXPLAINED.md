@@ -24,8 +24,9 @@ Course lookup and generated timetables come from UofT on each call.
 
 | File | Responsibility |
 | --- | --- |
-| `uoft_mcp/server.py` | Defines ten timetable tools and three authentication controls, sharing resources through `AppContext`. |
+| `uoft_mcp/server.py` | Defines 22 tools: ten timetable tools, nine Degree Explorer reads, and three authentication controls, sharing resources through `AppContext`. |
 | `uoft_mcp/client.py` | Sets the API URL, request headers, timeout, and HTTP error handling. |
+| `uoft_mcp/degree_explorer.py` | Allowlists nine authenticated GET routes and returns transient student JSON through the Playwright API context. |
 | `uoft_mcp/auth.py` | Owns nonblocking login tasks, connection status, session checkpoints, and cleanup. |
 | `uoft_mcp/auth_browser.py` | Opens the official login pages and probes fixed service endpoints with Playwright. |
 | `uoft_mcp/auth_store.py` | Encrypts browser state, uses an OS keyring, and locks access across processes. |
@@ -37,6 +38,7 @@ Course lookup and generated timetables come from UofT on each call.
 | `.python-version` | Tells uv to use Python 3.13 for this project. |
 | `.gitignore` | Keeps environments, caches, local secrets, and generated files out of Git. |
 | `tests/` | Offline tests of the API mappings and MCP interface, including real process pipes. |
+| `.github/workflows/tests.yml` | Runs tests, lint, and formatting checks for PRs targeting `main` or `master`. |
 | `timetable_builder.json` | Your original endpoint reference; not loaded at runtime. |
 
 Runtime dependencies include `mcp` (the protocol), `httpx` (public HTTP), `pydantic`
@@ -108,8 +110,19 @@ Use Python's `logging` module, which is configured to write to stderr.
 `uoft_login` schedules a task and returns progress metadata immediately. The manager
 checks stored sessions first. It opens a visible browser only for services that
 need login; the user completes the official authentication UI. Each verified app
-gets an immediate encrypted checkpoint. When login finishes, Chromium closes and
-an API request context continues using the same cookies and browser user agent.
+gets an immediate encrypted checkpoint. The manager then waits five seconds on
+that service, rechecks the page location and authenticated probe, and checkpoints
+fresh browser state before navigating onward or closing Chromium. The internal
+`login_settle_seconds` constructor setting defaults to `5.0`; it is not a tool
+argument. Waiting uses cancellable `asyncio.sleep`, so status and public timetable
+tools remain responsive.
+
+Only a `connected` probe can finish browser login. Failed verification retries
+within the shared five-minute timeout, and a newly successful check starts another
+settling period. Cancellation retains earlier verified checkpoints when persistence
+is available. After normal completion, an API request context continues using the
+latest captured cookies and browser user agent. Reusing valid saved access skips
+the browser and delay entirely.
 
 An async operation lock serializes login, refresh, Degree Explorer reads, and forget
 within a process; an OS file lock guards the shared saved session across processes. Secure storage
@@ -134,9 +147,11 @@ error instead of waiting for Duo. Reads never launch a browser or follow redirec
 After a read, rotated cookies are checkpointed through the existing encrypted store;
 student payloads are returned to the MCP client and never added to that store.
 
-The adapter rejects non-allowlisted routes and uses the auth response classifier
-for expired sessions, access denial, outages, and invalid responses. Successful
-reads preserve any JSON root, including menu arrays. Playwright response bodies
+The adapter rejects non-allowlisted routes and uses a shared classification and
+parsing helper for expired sessions, access denial, outages, and invalid responses.
+Each successful response is parsed once. Degree Explorer reads return that parsed
+payload; authentication probes discard it and return only sanitized status metadata.
+Reads preserve any JSON root, including menu arrays and JSON null. Playwright response bodies
 are disposed in `finally`. `server.py` maps sanitized failures to `ToolError` and
 returns successful JSON in one text block with `structured_output=False`, matching
 the existing tools. Tests in `test_degree_explorer.py` and

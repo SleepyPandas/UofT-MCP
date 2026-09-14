@@ -212,6 +212,7 @@ class PlaywrightSession:
         )
 
     async def finish_browser(self, state: dict) -> None:
+        """Close after the manager's final checkpoint and reuse that captured state."""
         await self.context.close()
         await self.browser.close()
         self.context = self.browser = self.page = self.api = None
