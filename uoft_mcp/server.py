@@ -16,10 +16,10 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 
-from uoft_mcp.auth import AuthManager
-from uoft_mcp.auth_browser import ServiceChoice
-from uoft_mcp.client import TimetableAPIError, create_http_client, request_json
-from uoft_mcp.degree_explorer import DegreeExplorerEndpoint, DegreeExplorerError
+from uoft_mcp.degree_explorer.client import DegreeExplorerEndpoint, DegreeExplorerError
+from uoft_mcp.timetable_builder.client import TimetableAPIError, create_http_client, request_json
+from uoft_mcp.utilities.auth import AuthManager
+from uoft_mcp.utilities.auth_browser import ServiceChoice
 
 NonEmptyString = Annotated[str, Field(min_length=1, pattern=r"\S")]
 NonNegativeInt = Annotated[int, Field(ge=0)]
@@ -517,6 +517,8 @@ def create_server(
         """Start official UofT browser login, returning immediately while you complete Duo.
 
         service is degree_explorer, acorn, or both. Saved sessions are reused when valid.
+        Newly verified browser sessions wait five seconds, recheck access, and save the
+        latest session before continuing or closing. Status stays in_progress during the wait.
         remember=False starts a fresh memory-only session without deleting saved sessions.
         Never supply passwords or MFA codes through tools. Check uoft_auth_status for progress.
         """

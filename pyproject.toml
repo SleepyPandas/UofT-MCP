@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "uoft-mcp"
-version = "0.4.0"
+version = "0.4.1"
 description = "MCP tools for UofT Timetable Builder and read-only Degree Explorer data."
 readme = "README.md"
 license = "MIT"
@@ -35,6 +35,7 @@ dev = ["pytest>=8,<10", "ruff>=0.11,<1"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["uoft_mcp"]
+artifacts = ["uoft_mcp/timetable_builder/reference.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

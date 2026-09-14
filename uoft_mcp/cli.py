@@ -7,7 +7,7 @@ import logging
 import subprocess
 import sys
 
-from uoft_mcp.auth import AuthManager
+from uoft_mcp.utilities.auth import AuthManager
 
 
 def parser() -> argparse.ArgumentParser:

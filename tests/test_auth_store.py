@@ -5,7 +5,7 @@ import json
 import pytest
 from cryptography.fernet import Fernet
 
-from uoft_mcp.auth_store import (
+from uoft_mcp.utilities.auth_store import (
     EMPTY_STATE,
     OSKeyStore,
     SessionInUse,
@@ -141,7 +141,7 @@ def test_failed_atomic_save_keeps_previous_state(tmp_path, state, monkeypatch):
     def fail(*args):
         raise OSError("SECRET")
 
-    monkeypatch.setattr("uoft_mcp.auth_store.os.replace", fail)
+    monkeypatch.setattr("uoft_mcp.utilities.auth_store.os.replace", fail)
     assert not store.save(EMPTY_STATE)
     assert store.path.read_bytes() == original
     assert not list(tmp_path.glob("session-*.enc"))

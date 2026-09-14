@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urljoin, urlsplit
 
 if TYPE_CHECKING:
-    from uoft_mcp.degree_explorer import DegreeExplorerEndpoint
+    from uoft_mcp.degree_explorer.client import DegreeExplorerEndpoint
 
 ServiceName = Literal["degree_explorer", "acorn"]
 ServiceChoice = Literal["degree_explorer", "acorn", "both"]
@@ -54,9 +54,21 @@ class ProbeResult:
 
 def classify_response(service: Service, status: int, headers: dict, body: str) -> ProbeResult:
     """Consume a response transiently; return no payload, headers, or redirect URLs."""
+    result, _ = classify_and_parse_response(service, status, headers, body)
+    return result
+
+
+def classify_and_parse_response(
+    service: Service, status: int, headers: dict, body: str
+) -> tuple[ProbeResult, Any]:
+    """Classify once and return parsed JSON only on success, for transient reads.
+
+    The result state distinguishes successful JSON null from a failed response.
+    Authentication probes discard the payload through classify_response.
+    """
     login = ProbeResult("login_required", "Sign in with uoft_login to connect this service.")
     if status == 401:
-        return login
+        return login, None
     if 300 <= status < 400:
         destination = urlsplit(urljoin(service.probe_url, headers.get("location", "")))
         host = destination.hostname or ""
@@ -65,29 +77,38 @@ def classify_response(service: Service, status: int, headers: dict, body: str) -
             or host == "duosecurity.com"
             or host.endswith(".duosecurity.com")
         ):
-            return login
-        return ProbeResult("unexpected_response", "The service returned an unexpected redirect.")
+            return login, None
+        return ProbeResult(
+            "unexpected_response", "The service returned an unexpected redirect."
+        ), None
     lower = body.lower()
     if "json" not in headers.get("content-type", "").lower() and any(
         marker in lower
         for marker in ("j_password", "samlrequest", "samlresponse", "utorid", "duosecurity.com")
     ):
-        return login
+        return login, None
     if status == 403:
-        return ProbeResult("access_denied", "The service denied access; your session was retained.")
-    if status == 429 or status >= 500:
         return ProbeResult(
-            "unavailable", "The service is temporarily unavailable; try again later."
+            "access_denied", "The service denied access; your session was retained."
+        ), None
+    if status == 429 or status >= 500:
+        return (
+            ProbeResult("unavailable", "The service is temporarily unavailable; try again later."),
+            None,
         )
     if status != 200 or "json" not in headers.get("content-type", "").lower():
-        return ProbeResult("unexpected_response", "The service did not return the expected JSON.")
+        return ProbeResult(
+            "unexpected_response", "The service did not return the expected JSON."
+        ), None
     try:
         payload = json.loads(body)
     except (ValueError, RecursionError):
-        return ProbeResult("unexpected_response", "The service returned malformed JSON.")
+        return ProbeResult("unexpected_response", "The service returned malformed JSON."), None
     if not isinstance(payload, service.json_type):
-        return ProbeResult("unexpected_response", "The service returned an unexpected JSON shape.")
-    return ProbeResult("connected", "Connection verified.")
+        return ProbeResult(
+            "unexpected_response", "The service returned an unexpected JSON shape."
+        ), None
+    return ProbeResult("connected", "Connection verified."), payload
 
 
 class PlaywrightSession:
@@ -141,7 +162,7 @@ class PlaywrightSession:
 
     async def read_degree_explorer(self, endpoint: DegreeExplorerEndpoint) -> Any:
         """Read one allowlisted route without opening a browser or following SSO."""
-        from uoft_mcp.degree_explorer import request_degree_explorer
+        from uoft_mcp.degree_explorer.client import request_degree_explorer
 
         return await request_degree_explorer(self.api, endpoint)
 
@@ -191,6 +212,7 @@ class PlaywrightSession:
         )
 
     async def finish_browser(self, state: dict) -> None:
+        """Close after the manager's final checkpoint and reuse that captured state."""
         await self.context.close()
         await self.browser.close()
         self.context = self.browser = self.page = self.api = None

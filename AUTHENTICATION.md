@@ -24,9 +24,18 @@ Login opens a dedicated Chromium window only when authentication is required. Ty
 your credentials and complete Duo on the official UofT pages. For `both`, Degree
 Explorer connects first, followed by ACORN in the same browser context. This lets
 UofT reuse its SSO session where permitted; an application can still request Duo.
-The window closes when the checks finish. Closing it yourself cancels the current
-login; an already verified service remains saved. The interactive flow has a
-five-minute timeout across both services.
+After each service first verifies successfully, its session is checkpointed and
+the browser stays on that service for five more seconds so redirects and local
+storage have time to finish. Access and the service location are checked again;
+the latest session is captured before moving to the next service or closing.
+Valid saved sessions are reused without opening a browser or adding this delay.
+
+Failed browser verification, including access denial or a temporary service error,
+keeps the window open and retries until success or timeout. Another successful
+verification starts a fresh five-second wait. Closing the window yourself cancels
+the current login; an already verified service remains saved when secure storage
+is available. The interactive flow has a five-minute timeout across both services,
+including these waits. Cancellation and timeout close the managed browser.
 
 In an MCP client, `uoft_login({"service":"both","remember":true})` returns
 immediately. Poll `uoft_auth_status({})` every few seconds while login is in
@@ -128,9 +137,20 @@ browser/API adapters. It requires neither Chromium nor a real UofT account.
 User-assisted acceptance sequence:
 
 1. Connect both services and complete Duo in Chromium.
-2. After Chromium closes, verify both services repeatedly.
-3. Stop the MCP and start a fresh process; verify the saved sessions again.
-4. Confirm expiry produces a reconnection instruction, and Forget removes local access.
+2. Check that login progress reports the five-second wait for each newly connected
+   service. The browser should stay on that service during the wait, then recheck
+   access before navigating onward or closing.
+3. After Chromium closes, verify both services repeatedly.
+4. Stop the MCP and start a fresh process; verify the saved sessions again. Login
+   with valid saved access should complete without a browser or settling delay.
+5. Confirm expiry produces a reconnection instruction, and Forget removes local access.
+
+The September 14, 2026 changes pass all 184 offline tests, Ruff lint, and formatting
+checks. Browser-settling regression tests cover
+late cookies/local storage, failed rechecks, service sequencing, timeout, and
+cancellation during the wait. Tests control the async wait rather than sleeping
+for five real seconds. This change has not been tested with a live UofT login;
+the earlier live verification below does not verify the new browser timing.
 
 Verified on Windows on September 11, 2026 (America/Toronto):
 

@@ -47,7 +47,7 @@ URL, or listening port is needed. The first start can take longer while uv downl
 Python and the dependencies; later starts use its cache.
 
 To pin a release instead of following the newest release, use
-`"args": ["uoft-mcp==0.4.0"]`.
+`"args": ["uoft-mcp==0.4.1"]`.
 
 ## Local Development
 
@@ -97,7 +97,9 @@ branch changes until a release):
 
 Ask your assistant to **"Connect my UofT account to Degree Explorer and ACORN."**
 Complete the official UofT login and Duo prompts in the dedicated Chromium window.
-The window closes after connection checks finish. Login state is encrypted locally
+After each service first verifies your login, the browser stays on that service for
+five more seconds, rechecks access, and captures the latest session before moving
+to the next service or closing. Login state is encrypted locally
 and reused after browser closure and MCP restarts, while UofT still accepts it.
 Passwords and Duo codes belong only on the official pages, never in chat or config.
 
@@ -141,6 +143,12 @@ containing the complete upstream JSON. The wrapper preserves fields and arrays,
 including upstream `payload` and `status` envelopes. It does not summarize or
 truncate course data. `save_timetable` keeps the upstream share object and adds
 `share_url`.
+
+> **Token-cost note:** The MCP server is currently inefficient: it returns raw
+> API JSON, which can incur substantial input-token costs. Future work will
+> reduce this through filtered API responses and code execution with MCP, as
+> described in Anthropic's [Code execution with MCP](https://www.anthropic.com/engineering/code-execution-with-mcp)
+> article.
 
 ### Example Workflow
 
@@ -219,6 +227,10 @@ uv run --locked ruff check .
 uv run --locked ruff format --check .
 ```
 
+The [PR workflow](.github/workflows/tests.yml) runs these checks on pull requests
+targeting `main` or `master`, using Python 3.13 on Ubuntu. New commits cancel an
+older run for the same PR. Tests need no Chromium installation or UofT credentials.
+
 The tests run offline. They cover all twenty-two tools, request mapping, raw JSON
 preservation, validation, HTTP errors, timeouts, connection errors, invalid JSON,
 shared-client cleanup, MCP discovery, and actual stdio subprocesses. Authentication
@@ -238,7 +250,22 @@ Current authentication verification is recorded in [AUTHENTICATION.md](AUTHENTIC
 
 ## API Notes
 
-- The supplied [timetable_builder.json](timetable_builder.json) remains the original
+## Project layout
+
+The MCP entry points remain `uoft_mcp.server` and `python -m uoft_mcp`. Service-specific
+code is grouped below the package so integrations can grow independently:
+
+```text
+uoft_mcp/
+├── timetable_builder/  # public Timetable Builder client and API reference
+├── degree_explorer/    # allowlisted, read-only Degree Explorer client
+├── acorn/              # ACORN integration namespace (login support today)
+├── utilities/          # shared authentication, browser, and secure session storage
+├── server.py           # MCP tool registration and application wiring
+└── cli.py              # stdio server and terminal authentication commands
+```
+
+- The supplied [Timetable Builder reference](uoft_mcp/timetable_builder/reference.json) remains the original
   reference. Live checks found two missing details: pagination starts at 1, and
   paginated search requires an empty `departmentProps` array when not filtering by
   department. The wrapper supplies it.
@@ -259,5 +286,3 @@ Current authentication verification is recorded in [AUTHENTICATION.md](AUTHENTIC
 - This API is not covered by an official support guarantee. Changes upstream may
   require updating the mappings. Successful HTTP responses are preserved as supplied,
   including any application-level status messages inside their JSON.
-
-For a walkthrough of the code and how to extend it, read [EXPLAINED.md](EXPLAINED.md).
