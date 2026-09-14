@@ -30,11 +30,19 @@ async def _store_call(function, *args):
 
 
 class AuthManager:
-    def __init__(self, store=None, backend_factory=None, login_timeout=300, poll_interval=1):
+    def __init__(
+        self,
+        store=None,
+        backend_factory=None,
+        login_timeout=300,
+        poll_interval=1,
+        login_settle_seconds=5.0,
+    ):
         self.store = store if store is not None else SessionStore()
         self.backend_factory = backend_factory or PlaywrightSession
         self.login_timeout = login_timeout
         self.poll_interval = poll_interval
+        self.login_settle_seconds = login_settle_seconds
         self._backend: Any = None
         self._state = deepcopy(EMPTY_STATE)
         self._opened = False
@@ -126,14 +134,7 @@ class AuthManager:
                                 f"Complete the official UofT login for {name} in the browser."
                             )
                             await self._backend.navigate(SERVICES[name])
-                            while True:
-                                if await self._backend.on_service(SERVICES[name]):
-                                    result = await self._backend.probe(SERVICES[name])
-                                    self._record(name, result)
-                                    if result.state != "login_required":
-                                        await self._checkpoint(browser=True)
-                                        break
-                                await asyncio.sleep(self.poll_interval)
+                            await self._wait_for_service(name)
                         await self._backend.finish_browser(self._state)
                 count = sum(self._services[name]["state"] == "connected" for name in names)
                 self._login.update(
@@ -162,6 +163,38 @@ class AuthManager:
                     state="failed", message="Authentication could not complete; retry login."
                 )
                 await self._close_backend()
+
+    async def _wait_for_service(self, name: str) -> None:
+        """Verify, allow redirects/storage to settle, then capture the latest session.
+
+        The caller's shared login timeout bounds retries and the settling delay.
+        Only connected probes permit completion; an error is not proof of login.
+        """
+        service = SERVICES[name]
+        while True:
+            if await self._backend.on_service(service):
+                result = await self._backend.probe(service)
+                self._record(name, result)
+                if result.state == "connected":
+                    # Retain verified access even if the user cancels during settling.
+                    await self._checkpoint(browser=True)
+                    self._login["message"] = (
+                        f"Connected to {name}; waiting {self.login_settle_seconds:g} seconds "
+                        "for the browser to finish loading before rechecking access."
+                    )
+                    await asyncio.sleep(self.login_settle_seconds)
+                    if await self._backend.on_service(service):
+                        result = await self._backend.probe(service)
+                    else:
+                        result = ProbeResult(
+                            "login_required", "Waiting for the browser to return to the service."
+                        )
+                    self._record(name, result)
+                    if result.state == "connected":
+                        await self._checkpoint(browser=True)
+                        return
+            self._login["message"] = f"Waiting for verified access to {name} in the browser."
+            await asyncio.sleep(self.poll_interval)
 
     async def refresh(self) -> dict:
         if self._task is not None and not self._task.done():

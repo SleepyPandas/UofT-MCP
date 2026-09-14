@@ -73,10 +73,15 @@ class FakeBrowser:
         if not self.ready.is_set():
             return False
         self.expired.discard(service.name)
-        self.state["cookies"].append({"name": service.name, "value": "SECRET"})
-        self.state["origins"] = [
-            {"origin": service.app_url, "localStorage": [{"name": "auth", "value": "LOCAL_SECRET"}]}
-        ]
+        if not any(cookie["name"] == service.name for cookie in self.state["cookies"]):
+            self.state["cookies"].append({"name": service.name, "value": "SECRET"})
+        if not any(origin["origin"] == service.app_url for origin in self.state["origins"]):
+            self.state["origins"].append(
+                {
+                    "origin": service.app_url,
+                    "localStorage": [{"name": "auth", "value": "LOCAL_SECRET"}],
+                }
+            )
         return True
 
     async def finish_browser(self, state):
@@ -90,6 +95,7 @@ class FakeBrowser:
 
 def manager(tmp_path, browser=None, keys=None, **kwargs):
     browser = browser or FakeBrowser()
+    kwargs.setdefault("login_settle_seconds", 0)
     return AuthManager(
         store=SessionStore(tmp_path, keys or Keys()),
         backend_factory=lambda: browser,
@@ -258,3 +264,180 @@ def test_empty_acorn_array_is_authenticated():
         classify_response(SERVICES["acorn"], 200, {"content-type": "application/json"}, "[]").state
         == "connected"
     )
+
+
+@pytest.fixture
+def settling(monkeypatch):
+    """Expose each production five-second wait as a gate controlled by the test."""
+    waits = asyncio.Queue()
+    sleep = asyncio.sleep
+
+    async def controlled_sleep(seconds):
+        if seconds == 5.0:
+            resume = asyncio.Event()
+            waits.put_nowait(resume)
+            await resume.wait()
+        else:
+            await sleep(seconds)
+
+    monkeypatch.setattr(asyncio, "sleep", controlled_sleep)
+    return waits
+
+
+@pytest.mark.anyio
+async def test_settling_captures_late_state_before_handoff_and_restore(tmp_path, settling):
+    keys = Keys()
+    auth, browser = manager(tmp_path, keys=keys, login_settle_seconds=5.0)
+    assert AuthManager().login_settle_seconds == 5.0
+    try:
+        await auth.login("degree_explorer")
+        async with asyncio.timeout(2):
+            resume = await settling.get()
+            assert browser.browser_open
+            assert browser.visited == ["degree_explorer"]
+            assert (await auth.refresh())["login"]["state"] == "in_progress"
+            assert "5 seconds" in auth.status()["login"]["message"]
+            assert auth.store.load()["cookies"]  # First verification is already saved.
+            browser.state["cookies"].append({"name": "late", "value": "LATE_SECRET"})
+            browser.state["origins"][0]["localStorage"].append(
+                {"name": "late", "value": "LATE_LOCAL_SECRET"}
+            )
+            browser.state["user_agent"] = "Late browser agent"
+            resume.set()
+            result = await auth.wait_for_login()
+        assert result["login"]["state"] == "complete"
+        assert "SECRET" not in json.dumps(result)
+        assert not browser.browser_open
+        saved = auth.store.load()
+        assert saved == browser.state == auth._state
+        assert saved["cookies"][-1]["value"] == "LATE_SECRET"
+        assert saved["origins"][0]["localStorage"][-1]["value"] == "LATE_LOCAL_SECRET"
+        assert saved["user_agent"] == "Late browser agent"
+    finally:
+        await auth.close()
+
+    restored, browser = manager(tmp_path, keys=keys, login_settle_seconds=5.0)
+    try:
+        await restored.login("degree_explorer")
+        async with asyncio.timeout(2):
+            assert (await restored.wait_for_login())["login"]["state"] == "complete"
+        assert browser.visited == []
+        assert settling.empty()
+        assert restored._state["origins"] == saved["origins"]
+    finally:
+        await restored.close()
+
+
+@pytest.mark.anyio
+async def test_both_services_settle_before_navigation_or_closure(tmp_path, settling):
+    auth, browser = manager(tmp_path, login_settle_seconds=5.0)
+    try:
+        await auth.login()
+        async with asyncio.timeout(2):
+            first = await settling.get()
+            assert browser.visited == ["degree_explorer"]
+            first.set()
+            second = await settling.get()
+            assert browser.visited == ["degree_explorer", "acorn"]
+            assert browser.browser_open
+            second.set()
+            assert (await auth.wait_for_login())["login"]["state"] == "complete"
+        assert not browser.browser_open
+    finally:
+        await auth.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "failure", ["login_required", "unavailable", "access_denied", "unexpected_response", "redirect"]
+)
+async def test_failed_settle_recheck_requires_new_verification_and_wait(
+    tmp_path, settling, failure
+):
+    auth, browser = manager(tmp_path, login_settle_seconds=5.0)
+    probe = browser.probe
+    on_service = browser.on_service
+    checks = 0
+
+    async def recheck(service):
+        nonlocal checks
+        if browser.browser_open:
+            checks += 1
+            if checks == 2 and failure != "redirect":
+                return ProbeResult(failure, "Retry verification.")
+        return await probe(service)
+
+    locations = 0
+
+    async def location(service):
+        nonlocal locations
+        locations += 1
+        if locations == 2 and failure == "redirect":
+            return False
+        return await on_service(service)
+
+    browser.probe = recheck
+    browser.on_service = location
+    try:
+        await auth.login("degree_explorer")
+        async with asyncio.timeout(2):
+            (await settling.get()).set()
+            retry = await settling.get()
+            assert browser.browser_open
+            assert auth.status()["login"]["state"] == "in_progress"
+            retry.set()
+            assert (await auth.wait_for_login())["login"]["state"] == "complete"
+    finally:
+        await auth.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("failure", ["unavailable", "access_denied", "unexpected_response"])
+async def test_browser_probe_errors_wait_until_timeout(tmp_path, failure):
+    auth, browser = manager(tmp_path, login_timeout=0.1)
+    probe = browser.probe
+
+    async def fail_in_browser(service):
+        if browser.browser_open:
+            return ProbeResult(failure, "Verification failed.")
+        return await probe(service)
+
+    browser.probe = fail_in_browser
+    try:
+        await auth.login("degree_explorer")
+        result = await auth.wait_for_login()
+        assert result["login"]["state"] == "timed_out"
+        assert result["services"]["degree_explorer"]["state"] == failure
+        assert not auth.store.load()["cookies"]
+        assert browser.closed
+    finally:
+        await auth.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("action", ["timeout", "window_close", "forget", "shutdown"])
+async def test_interrupt_during_settling_cleans_up(tmp_path, settling, action):
+    auth, browser = manager(
+        tmp_path, login_timeout=0.2 if action == "timeout" else 300, login_settle_seconds=5.0
+    )
+    try:
+        await auth.login("degree_explorer")
+        async with asyncio.timeout(2):
+            resume = await settling.get()
+            if action == "forget":
+                assert (await auth.forget())["login"]["state"] == "idle"
+                assert not auth.store.path.exists()
+            elif action == "shutdown":
+                await auth.close()
+            else:
+                if action == "window_close":
+                    browser.close_window = True
+                    resume.set()
+                result = await auth.wait_for_login()
+                expected = "timed_out" if action == "timeout" else "cancelled"
+                assert result["login"]["state"] == expected
+                assert auth.store.load()["cookies"]
+        assert browser.closed
+        assert not browser.browser_open
+    finally:
+        await auth.close()
