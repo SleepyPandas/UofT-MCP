@@ -144,6 +144,12 @@ including upstream `payload` and `status` envelopes. It does not summarize or
 truncate course data. `save_timetable` keeps the upstream share object and adds
 `share_url`.
 
+> **Token-cost note:** The MCP server is currently inefficient: it returns raw
+> API JSON, which can incur substantial input-token costs. Future work will
+> reduce this through filtered API responses and code execution with MCP, as
+> described in Anthropic's [Code execution with MCP](https://www.anthropic.com/engineering/code-execution-with-mcp)
+> article.
+
 ### Example Workflow
 
 1. Call `get_current_sessions` with `{}` and select a non-header entry's `value`.
