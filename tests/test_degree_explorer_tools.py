@@ -7,9 +7,9 @@ import pytest
 from mcp import Client
 from test_auth import manager
 
-from uoft_mcp.auth_browser import PlaywrightSession
-from uoft_mcp.degree_explorer import BASE_URL
+from uoft_mcp.degree_explorer.client import BASE_URL
 from uoft_mcp.server import create_server
+from uoft_mcp.utilities.auth_browser import PlaywrightSession
 
 ROUTES = {
     "academic_history": "/dxStudent/getAcademicHistory",

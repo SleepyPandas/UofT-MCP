@@ -3,7 +3,7 @@
 from enum import StrEnum
 from typing import Any
 
-from uoft_mcp.auth_browser import Service, classify_and_parse_response
+from uoft_mcp.utilities.auth_browser import Service, classify_and_parse_response
 
 BASE_URL = "https://degreeexplorer.utoronto.ca/degreeExplorer/rest"
 

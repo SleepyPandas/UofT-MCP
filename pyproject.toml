@@ -35,6 +35,7 @@ dev = ["pytest>=8,<10", "ruff>=0.11,<1"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["uoft_mcp"]
+artifacts = ["uoft_mcp/timetable_builder/reference.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

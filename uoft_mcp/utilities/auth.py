@@ -5,7 +5,8 @@ from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Any
 
-from uoft_mcp.auth_browser import (
+from uoft_mcp.degree_explorer.client import DegreeExplorerEndpoint, DegreeExplorerError
+from uoft_mcp.utilities.auth_browser import (
     SERVICES,
     BrowserClosed,
     BrowserError,
@@ -13,8 +14,12 @@ from uoft_mcp.auth_browser import (
     ProbeResult,
     ServiceChoice,
 )
-from uoft_mcp.auth_store import EMPTY_STATE, SessionStore, SessionStoreError, merge_api_cookies
-from uoft_mcp.degree_explorer import DegreeExplorerEndpoint, DegreeExplorerError
+from uoft_mcp.utilities.auth_store import (
+    EMPTY_STATE,
+    SessionStore,
+    SessionStoreError,
+    merge_api_cookies,
+)
 
 
 async def _store_call(function, *args):

@@ -6,9 +6,9 @@ from copy import deepcopy
 
 import pytest
 
-from uoft_mcp.auth import AuthManager
-from uoft_mcp.auth_browser import SERVICES, BrowserClosed, ProbeResult, classify_response
-from uoft_mcp.auth_store import EMPTY_STATE, SessionStore
+from uoft_mcp.utilities.auth import AuthManager
+from uoft_mcp.utilities.auth_browser import SERVICES, BrowserClosed, ProbeResult, classify_response
+from uoft_mcp.utilities.auth_store import EMPTY_STATE, SessionStore
 
 
 class Keys:

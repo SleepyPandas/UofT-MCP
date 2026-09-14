@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from test_auth import Keys, manager
 
-from uoft_mcp.auth_browser import PlaywrightSession
-from uoft_mcp.degree_explorer import BASE_URL, DegreeExplorerEndpoint, DegreeExplorerError
+from uoft_mcp.degree_explorer.client import BASE_URL, DegreeExplorerEndpoint, DegreeExplorerError
+from uoft_mcp.utilities.auth_browser import PlaywrightSession
 
 
 @pytest.mark.anyio
@@ -47,7 +47,7 @@ async def test_read_parses_large_payload_only_once():
     )
     session = PlaywrightSession()
     session.api = Mock(get=AsyncMock(return_value=response))
-    with patch("uoft_mcp.auth_browser.json.loads", wraps=json.loads) as parse:
+    with patch("uoft_mcp.utilities.auth_browser.json.loads", wraps=json.loads) as parse:
         assert (
             await session.read_degree_explorer(DegreeExplorerEndpoint.ACADEMIC_HISTORY) == payload
         )

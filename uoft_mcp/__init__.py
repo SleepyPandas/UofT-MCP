@@ -1,1 +1,1 @@
-"""MCP tools for UofT Timetable Builder and read-only Degree Explorer data."""
+"""MCP tools for UofT services, organized by integration and shared utilities."""

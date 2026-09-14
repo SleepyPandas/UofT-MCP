@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Reorganized the package into Timetable Builder, Degree Explorer, ACORN, and
+  shared utility namespaces. The `uoft-mcp` command, `uoft_mcp.server` entry
+  point, and all MCP tool names remain unchanged.
+
 ## 0.4.1 — 2026-09-14
 
 ### Fixed

@@ -244,7 +244,22 @@ Current authentication verification is recorded in [AUTHENTICATION.md](AUTHENTIC
 
 ## API Notes
 
-- The supplied [timetable_builder.json](timetable_builder.json) remains the original
+## Project layout
+
+The MCP entry points remain `uoft_mcp.server` and `python -m uoft_mcp`. Service-specific
+code is grouped below the package so integrations can grow independently:
+
+```text
+uoft_mcp/
+├── timetable_builder/  # public Timetable Builder client and API reference
+├── degree_explorer/    # allowlisted, read-only Degree Explorer client
+├── acorn/              # ACORN integration namespace (login support today)
+├── utilities/          # shared authentication, browser, and secure session storage
+├── server.py           # MCP tool registration and application wiring
+└── cli.py              # stdio server and terminal authentication commands
+```
+
+- The supplied [Timetable Builder reference](uoft_mcp/timetable_builder/reference.json) remains the original
   reference. Live checks found two missing details: pagination starts at 1, and
   paginated search requires an empty `departmentProps` array when not filtering by
   department. The wrapper supplies it.

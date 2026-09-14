@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urljoin, urlsplit
 
 if TYPE_CHECKING:
-    from uoft_mcp.degree_explorer import DegreeExplorerEndpoint
+    from uoft_mcp.degree_explorer.client import DegreeExplorerEndpoint
 
 ServiceName = Literal["degree_explorer", "acorn"]
 ServiceChoice = Literal["degree_explorer", "acorn", "both"]
@@ -162,7 +162,7 @@ class PlaywrightSession:
 
     async def read_degree_explorer(self, endpoint: DegreeExplorerEndpoint) -> Any:
         """Read one allowlisted route without opening a browser or following SSO."""
-        from uoft_mcp.degree_explorer import request_degree_explorer
+        from uoft_mcp.degree_explorer.client import request_degree_explorer
 
         return await request_degree_explorer(self.api, endpoint)
 

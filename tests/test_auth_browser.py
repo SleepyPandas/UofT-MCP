@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from uoft_mcp.auth_browser import SERVICES, PlaywrightSession
+from uoft_mcp.utilities.auth_browser import SERVICES, PlaywrightSession
 
 
 @pytest.mark.anyio
