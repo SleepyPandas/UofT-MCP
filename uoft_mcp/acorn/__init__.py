@@ -1,1 +1,1 @@
-"""ACORN integration namespace; authentication is currently the supported capability."""
+"""Read-only ACORN integration using shared UofT authentication."""
