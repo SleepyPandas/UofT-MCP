@@ -1,4 +1,4 @@
-"""Public timetable tools, read-only Degree Explorer, and UofT login over stdio."""
+"""Public timetable tools, authenticated academic reads, and UofT login over stdio."""
 
 from __future__ import annotations
 
@@ -16,6 +16,8 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 
+from uoft_mcp.acorn.client import AcornEndpoint, AcornError
+from uoft_mcp.acorn.selection import select_fields, validate_fields
 from uoft_mcp.degree_explorer.client import DegreeExplorerEndpoint, DegreeExplorerError
 from uoft_mcp.timetable_builder.client import TimetableAPIError, create_http_client, request_json
 from uoft_mcp.utilities.auth import AuthManager
@@ -31,7 +33,7 @@ ClockTime = Annotated[str, Field(pattern=r"^\d{1,2}:\d{2}$")]
 ObjectId = Annotated[str, Field(pattern=r"^[A-Za-z0-9]+$")]
 ShareId = Annotated[str, Field(min_length=1, pattern=r"^[A-Za-z0-9]+$")]
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True)
-DEGREE_EXPLORER_READ = ToolAnnotations(
+AUTHENTICATED_READ = ToolAnnotations(
     read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=True
 )
 SAVE_SHARE = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False)
@@ -60,6 +62,17 @@ class GenerationPlan(BaseModel):
     courses: Annotated[list[GenerationCourse], Field(min_length=1)]
     preference: TimePreference = "balanced"
     blocked_times: list[BlockedTime] | None = None
+
+
+async def _acorn(
+    ctx: Context[AppContext], endpoint: AcornEndpoint, fields: list[str] | None
+) -> str:
+    try:
+        validate_fields(fields)
+        data = await ctx.request_context.lifespan_context.auth.read_acorn(endpoint)
+        return json.dumps(select_fields(data, fields), ensure_ascii=False, separators=(",", ":"))
+    except AcornError as exc:
+        raise ToolError(str(exc)) from None
 
 
 async def _degree_explorer(ctx: Context[AppContext], endpoint: DegreeExplorerEndpoint) -> str:
@@ -230,7 +243,7 @@ def create_server(
         instructions=(
             "Look up current sessions and reference data before choosing filters. "
             "Course details include the course id needed by generate_timetable. "
-            "Data tools return complete upstream JSON as text. "
+            "Data tools return JSON as text. "
             "This server does not enroll students. "
             "Use uoft_login to connect Degree Explorer or ACORN in an official browser window. "
             "Never ask for credentials or Duo codes in chat. Login returns immediately; "
@@ -241,7 +254,9 @@ def create_server(
             "Choose academic_history for courses/marks, student_data or student_record for "
             "Current Status, and planner for existing timelines. Fetch only the data needed. "
             "Cell selectors are undocumented; get_cell_details cannot select a specific cell. "
-            "No Degree Explorer writes, enrolment changes, or ACORN data tools are available."
+            "acorn_* tools read eligible registrations, dashboard courses, and registration info. "
+            "They reuse saved access; optional fields selects top-level keys to reduce results. "
+            "No Degree Explorer writes or ACORN enrolment changes are available."
         ),
         lifespan=lifespan,
     )
@@ -406,7 +421,37 @@ def create_server(
         """Load a previously saved Timetable Builder state by its public share id."""
         return await _request(ctx, "GET", "tiny/retrieve", params={"id": share_id})
 
-    @server.tool(structured_output=False, annotations=DEGREE_EXPLORER_READ)
+    @server.tool(structured_output=False, annotations=AUTHENTICATED_READ)
+    async def acorn_get_eligible_registrations(
+        ctx: Context[AppContext], fields: list[str] | None = None
+    ) -> str:
+        """Read ACORN eligible registration periods as compact JSON. Requires uoft_login.
+
+        Optional fields selects top-level keys per registration; omit for complete data.
+        """
+        return await _acorn(ctx, AcornEndpoint.ELIGIBLE_REGISTRATIONS, fields)
+
+    @server.tool(structured_output=False, annotations=AUTHENTICATED_READ)
+    async def acorn_get_dashboard_courses(
+        ctx: Context[AppContext], fields: list[str] | None = None
+    ) -> str:
+        """Read ACORN dashboard courses for the current session as JSON. Requires uoft_login.
+
+        Optional fields selects top-level keys; omit for complete data.
+        """
+        return await _acorn(ctx, AcornEndpoint.DASHBOARD_COURSES, fields)
+
+    @server.tool(structured_output=False, annotations=AUTHENTICATED_READ)
+    async def acorn_get_student_registration_info(
+        ctx: Context[AppContext], fields: list[str] | None = None
+    ) -> str:
+        """Read ACORN registration/financial-hold status, person ID and exam flag as JSON.
+
+        Requires uoft_login. Optional fields selects top-level keys; omit for complete data.
+        """
+        return await _acorn(ctx, AcornEndpoint.STUDENT_REGISTRATION_INFO, fields)
+
+    @server.tool(structured_output=False, annotations=AUTHENTICATED_READ)
     async def degree_explorer_get_academic_history(ctx: Context[AppContext]) -> str:
         """Read the connected student's course history, sessions, marks, and requirement data.
 
@@ -417,7 +462,7 @@ def create_server(
         """
         return await _degree_explorer(ctx, DegreeExplorerEndpoint.ACADEMIC_HISTORY)
 
-    @server.tool(structured_output=False, annotations=DEGREE_EXPLORER_READ)
+    @server.tool(structured_output=False, annotations=AUTHENTICATED_READ)
     async def degree_explorer_get_student_data(ctx: Context[AppContext]) -> str:
         """Read the connected student's payload used by Degree Explorer's Current Status page.
 
@@ -428,7 +473,7 @@ def create_server(
         """
         return await _degree_explorer(ctx, DegreeExplorerEndpoint.STUDENT_DATA)
 
-    @server.tool(structured_output=False, annotations=DEGREE_EXPLORER_READ)
+    @server.tool(structured_output=False, annotations=AUTHENTICATED_READ)
     async def degree_explorer_get_student_record(ctx: Context[AppContext]) -> str:
         """Read the connected student's record payload used by Degree Explorer Current Status.
 
@@ -439,7 +484,7 @@ def create_server(
         """
         return await _degree_explorer(ctx, DegreeExplorerEndpoint.STUDENT_RECORD)
 
-    @server.tool(structured_output=False, annotations=DEGREE_EXPLORER_READ)
+    @server.tool(structured_output=False, annotations=AUTHENTICATED_READ)
     async def degree_explorer_get_student_user_data(ctx: Context[AppContext]) -> str:
         """Read the connected student's Degree Explorer menu/session user metadata.
 
@@ -450,7 +495,7 @@ def create_server(
         """
         return await _degree_explorer(ctx, DegreeExplorerEndpoint.STUDENT_USER_DATA)
 
-    @server.tool(structured_output=False, annotations=DEGREE_EXPLORER_READ)
+    @server.tool(structured_output=False, annotations=AUTHENTICATED_READ)
     async def degree_explorer_get_student_menu(ctx: Context[AppContext]) -> str:
         """Read the connected student's available Degree Explorer navigation entries.
 
@@ -461,7 +506,7 @@ def create_server(
         """
         return await _degree_explorer(ctx, DegreeExplorerEndpoint.STUDENT_MENU)
 
-    @server.tool(structured_output=False, annotations=DEGREE_EXPLORER_READ)
+    @server.tool(structured_output=False, annotations=AUTHENTICATED_READ)
     async def degree_explorer_get_messages(ctx: Context[AppContext]) -> str:
         """Read Degree Explorer's UI string catalog, not a student inbox or correspondence.
 
@@ -472,7 +517,7 @@ def create_server(
         """
         return await _degree_explorer(ctx, DegreeExplorerEndpoint.MESSAGES)
 
-    @server.tool(structured_output=False, annotations=DEGREE_EXPLORER_READ)
+    @server.tool(structured_output=False, annotations=AUTHENTICATED_READ)
     async def degree_explorer_get_session_timeouts(ctx: Context[AppContext]) -> str:
         """Read Degree Explorer's web-client timeout settings; this does not extend a session.
 
@@ -483,7 +528,7 @@ def create_server(
         """
         return await _degree_explorer(ctx, DegreeExplorerEndpoint.SESSION_TIMEOUTS)
 
-    @server.tool(structured_output=False, annotations=DEGREE_EXPLORER_READ)
+    @server.tool(structured_output=False, annotations=AUTHENTICATED_READ)
     async def degree_explorer_get_planner(ctx: Context[AppContext]) -> str:
         """Read the connected student's existing planner timelines and primary-plan flags.
 
@@ -494,7 +539,7 @@ def create_server(
         """
         return await _degree_explorer(ctx, DegreeExplorerEndpoint.PLANNER)
 
-    @server.tool(structured_output=False, annotations=DEGREE_EXPLORER_READ)
+    @server.tool(structured_output=False, annotations=AUTHENTICATED_READ)
     async def degree_explorer_get_cell_details(ctx: Context[AppContext]) -> str:
         """Read the planner cell-popup endpoint with no arguments, as documented in the registry.
 
