@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Added
+
+- Three authenticated, read-only ACORN tools for eligible registrations, current
+  dashboard courses, and student registration info, reusing saved UofT sessions.
+- Compact JSON with optional top-level field selection, short tool descriptions,
+  and reusable client/projection helpers for future programmatic clients.
+- ACORN transport, session lifecycle, field-selection, and MCP contract coverage;
+  the full offline suite passes 240 tests. Live verification remains pending:
+  the saved-session attempt returned an ACORN login redirect on 2026-09-19.
+
 ### Changed
 
 - Reorganized the package into Timetable Builder, Degree Explorer, ACORN, and

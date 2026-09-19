@@ -1,13 +1,14 @@
 # UofT MCP
 
 A small Python MCP server for the public [UofT Timetable Builder](https://ttb.utoronto.ca/)
-API, with read-only Degree Explorer access and reusable UofT login for Degree
-Explorer and ACORN. It exposes twenty-two tools over local stdio using the
+API, with read-only Degree Explorer and ACORN access and reusable UofT login.
+It exposes twenty-five tools over local stdio using the
 [official MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk): ten
-public timetable tools, nine Degree Explorer reads, and three local authentication controls.
+public timetable tools, nine Degree Explorer reads, three ACORN reads, and three
+local authentication controls.
 
-> **Work in progress:** Degree Explorer reads are available in this checkout.
-> Degree Explorer writes and ACORN student-data tools are not implemented.
+> **Work in progress:** Degree Explorer and three basic ACORN reads are available
+> in this checkout. Degree Explorer writes and ACORN enrolment changes are not implemented.
 
 Public timetable tools require no login, API key, database, web server, or environment
 variables. This is an
@@ -124,6 +125,9 @@ for terminal commands, memory-only sessions, expiry, and troubleshooting.
 | `uoft_login` | Optional `service` of `degree_explorer`, `acorn`, or `both` (default), plus `remember=true`. Starts or reuses official browser login and returns while you complete Duo. |
 | `uoft_auth_status` | Optional `refresh=false`. Reports connection and login progress; `refresh=true` checks both services without opening a browser. |
 | `uoft_forget_session` | No arguments. Cancels login and removes locally saved UofT session state and its encryption key. |
+| `acorn_get_eligible_registrations` | Optional `fields` list. Read eligible registration periods; selection applies to each registration. |
+| `acorn_get_dashboard_courses` | Optional `fields` list. Read dashboard enrolled courses for the current session. |
+| `acorn_get_student_registration_info` | Optional `fields` list. Read registration/financial-hold status, person ID, and upcoming-exams flag. |
 | `degree_explorer_get_academic_history` | No arguments. Read course history, sessions, marks, and requirements after Degree Explorer login. |
 | `degree_explorer_get_student_data` | No arguments. Read the payload used by Degree Explorer's Current Status page. |
 | `degree_explorer_get_student_record` | No arguments. Read the record payload used by Current Status; it is not a certified transcript. |
@@ -138,17 +142,21 @@ See [Degree Explorer tools and workflow](DEGREE_EXPLORER.md) for all nine authen
 reads, their fixed API routes, and limitations. Each accepts `{}` and reads only
 the connected student's account.
 
+See [ACORN tools and workflow](ACORN.md) for the three basic reads and field-selection
+examples. They reuse the connected account without opening a login browser.
+
 Each successful lookup, generation, and retrieve call returns one text block
 containing the complete upstream JSON. The wrapper preserves fields and arrays,
 including upstream `payload` and `status` envelopes. It does not summarize or
 truncate course data. `save_timetable` keeps the upstream share object and adds
 `share_url`.
 
-> **Token-cost note:** The MCP server is currently inefficient: it returns raw
-> API JSON, which can incur substantial input-token costs. Future work will
-> reduce this through filtered API responses and code execution with MCP, as
-> described in Anthropic's [Code execution with MCP](https://www.anthropic.com/engineering/code-execution-with-mcp)
-> article.
+> **Token-cost note:** ACORN tools return compact JSON and accept optional `fields`
+> to reduce response data before it reaches the model. Other tools still return full
+> upstream JSON. Future client-side code execution can process intermediate results
+> outside model context, as described in Anthropic's
+> [Code execution with MCP](https://www.anthropic.com/engineering/code-execution-with-mcp).
+> This server does not provide a code-execution sandbox.
 
 ### Example Workflow
 
@@ -231,7 +239,7 @@ The [PR workflow](.github/workflows/tests.yml) runs these checks on pull request
 targeting `main` or `master`, using Python 3.13 on Ubuntu. New commits cancel an
 older run for the same PR. Tests need no Chromium installation or UofT credentials.
 
-The tests run offline. They cover all twenty-two tools, request mapping, raw JSON
+The tests run offline. They cover all twenty-five tools, request mapping, raw JSON
 preservation, validation, HTTP errors, timeouts, connection errors, invalid JSON,
 shared-client cleanup, MCP discovery, and actual stdio subprocesses. Authentication
 tests cover encrypted persistence, restoration, browser lifecycle, expiry, locking,
@@ -239,7 +247,9 @@ CLI controls, and sanitized status results using synthetic state and fake backen
 Degree Explorer tests also cover all nine GET mappings, MCP schemas and annotations,
 JSON preservation, sanitized errors, response disposal, saved-session reuse, and
 serialization with login and forget. These reads have not been verified against a
-live authenticated account in this change.
+live authenticated account in this change. ACORN tests additionally cover compact JSON,
+field selection, and expected root types. All 240 tests pass. A live ACORN read on
+2026-09-19 returned a login redirect; authenticated live verification remains pending.
 
 Previous timetable verification: 50 tests passed. Live checks of lookup, `generateYear`, `tiny/shorten`,
 and `tiny/retrieve` succeeded, including generating CSC258H1 and CSC311H1, saving an
@@ -259,7 +269,7 @@ code is grouped below the package so integrations can grow independently:
 uoft_mcp/
 ├── timetable_builder/  # public Timetable Builder client and API reference
 ├── degree_explorer/    # allowlisted, read-only Degree Explorer client
-├── acorn/              # ACORN integration namespace (login support today)
+├── acorn/              # allowlisted ACORN reads and field selection
 ├── utilities/          # shared authentication, browser, and secure session storage
 ├── server.py           # MCP tool registration and application wiring
 └── cli.py              # stdio server and terminal authentication commands
