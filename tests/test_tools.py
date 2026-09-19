@@ -10,6 +10,9 @@ from mcp import Client
 from uoft_mcp.server import create_server
 
 TOOL_NAMES = {
+    "acorn_get_eligible_registrations",
+    "acorn_get_dashboard_courses",
+    "acorn_get_student_registration_info",
     "get_current_sessions",
     "get_reference_data",
     "get_divisions",

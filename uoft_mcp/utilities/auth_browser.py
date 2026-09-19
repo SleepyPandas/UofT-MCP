@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urljoin, urlsplit
 
 if TYPE_CHECKING:
+    from uoft_mcp.acorn.client import AcornEndpoint
     from uoft_mcp.degree_explorer.client import DegreeExplorerEndpoint
 
 ServiceName = Literal["degree_explorer", "acorn"]
@@ -165,6 +166,12 @@ class PlaywrightSession:
         from uoft_mcp.degree_explorer.client import request_degree_explorer
 
         return await request_degree_explorer(self.api, endpoint)
+
+    async def read_acorn(self, endpoint: AcornEndpoint) -> Any:
+        """Read one allowlisted route without opening a browser or following SSO."""
+        from uoft_mcp.acorn.client import request_acorn
+
+        return await request_acorn(self.api, endpoint)
 
     async def snapshot(self) -> dict:
         if self.context is not None:

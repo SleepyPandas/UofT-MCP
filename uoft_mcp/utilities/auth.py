@@ -5,6 +5,7 @@ from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Any
 
+from uoft_mcp.acorn.client import AcornEndpoint, AcornError
 from uoft_mcp.degree_explorer.client import DegreeExplorerEndpoint, DegreeExplorerError
 from uoft_mcp.utilities.auth_browser import (
     SERVICES,
@@ -257,6 +258,45 @@ class AuthManager:
                 await self._close_backend()
                 raise DegreeExplorerError(
                     "Could not read Degree Explorer using the local session. "
+                    "Check uoft_auth_status before retrying.",
+                    "unavailable",
+                ) from None
+
+    async def read_acorn(self, endpoint: AcornEndpoint) -> Any:
+        """Reuse saved access for one read, serialized with refresh, login, and forget.
+
+        Reads never initiate login or wait for Duo. Only rotated cookies are saved;
+        academic response data stays transient and is returned to the calling tool.
+        """
+        if not isinstance(endpoint, AcornEndpoint):
+            raise AcornError("Unsupported ACORN endpoint.")
+        if self._task is not None and not self._task.done():
+            raise AcornError(
+                "UofT login is in progress. Check uoft_auth_status before retrying.",
+                "login_in_progress",
+            )
+        async with self._operation:
+            try:
+                await self._ensure_open(self._remember)
+                try:
+                    data = await self._backend.read_acorn(endpoint)
+                except AcornError as exc:
+                    self._record("acorn", ProbeResult(exc.state, str(exc)))
+                    raise
+                else:
+                    self._record("acorn", ProbeResult("connected", "Connection verified."))
+                    return data
+                finally:
+                    await self._checkpoint()
+            except AcornError:
+                raise
+            except (BrowserError, SessionStoreError) as exc:
+                await self._close_backend()
+                raise AcornError(str(exc), "unavailable") from None
+            except Exception:
+                await self._close_backend()
+                raise AcornError(
+                    "Could not read ACORN using the local session. "
                     "Check uoft_auth_status before retrying.",
                     "unavailable",
                 ) from None

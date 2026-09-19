@@ -2,8 +2,9 @@
 
 The MCP can sign in to Degree Explorer and ACORN, verify connections, remember a
 session, and forget it. [Degree Explorer read tools](DEGREE_EXPLORER.md) reuse this
-session for academic records and existing plans. Enrolment, account changes, and
-ACORN academic-data tools are not implemented.
+session for academic records and existing plans. [ACORN read tools](ACORN.md) reuse
+it for eligible registrations, dashboard courses, and student registration info.
+Enrolment and account changes are not implemented.
 
 ## First connection
 
