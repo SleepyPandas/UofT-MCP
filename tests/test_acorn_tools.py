@@ -1,6 +1,7 @@
 """Acorn discovery, routing, and compact results through the MCP SDK."""
 
 import json
+from functools import partial
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -9,8 +10,10 @@ from test_auth import manager
 
 from uoft_mcp.acorn.client import BASE_URL, AcornError
 from uoft_mcp.acorn.selection import select_fields
-from uoft_mcp.server import create_server
+from uoft_mcp.server import create_server as _create_server
 from uoft_mcp.utilities.auth_browser import PlaywrightSession
+
+create_server = partial(_create_server, tool_profile="legacy")
 
 ROUTES = {
     "acorn_get_eligible_registrations": (

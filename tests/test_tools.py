@@ -1,13 +1,16 @@
 """Exercise the public MCP interface against a deterministic HTTP transport."""
 
 import json
+from functools import partial
 from urllib.parse import quote
 
 import httpx
 import pytest
 from mcp import Client
 
-from uoft_mcp.server import create_server
+from uoft_mcp.server import create_server as _create_server
+
+create_server = partial(_create_server, tool_profile="legacy")
 
 TOOL_NAMES = {
     "acorn_get_eligible_registrations",

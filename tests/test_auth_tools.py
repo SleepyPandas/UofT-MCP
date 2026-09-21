@@ -1,13 +1,16 @@
 """MCP integration keeps authentication lazy and login operations nonblocking."""
 
 import json
+from functools import partial
 
 import httpx
 import pytest
 from mcp import Client
 from test_auth import manager
 
-from uoft_mcp.server import create_server
+from uoft_mcp.server import create_server as _create_server
+
+create_server = partial(_create_server, tool_profile="legacy")
 
 
 @pytest.mark.anyio

@@ -44,6 +44,7 @@ class AuthManager:
         poll_interval=1,
         login_settle_seconds=5.0,
     ):
+        self.on_session_change = lambda: None
         self.store = store if store is not None else SessionStore()
         self.backend_factory = backend_factory or PlaywrightSession
         self.login_timeout = login_timeout
@@ -98,6 +99,8 @@ class AuthManager:
             await self._backend.start(self._state)
 
     def _record(self, name: str, result: ProbeResult) -> None:
+        if result.state != "connected":
+            self.on_session_change()
         self._services[name].update(state=result.state, message=result.message)
         if result.state == "connected":
             self._services[name]["last_verified"] = datetime.now(UTC).isoformat()
@@ -112,6 +115,7 @@ class AuthManager:
             raise ValueError("Choose degree_explorer, acorn, or both.")
         if self._task is not None and not self._task.done():
             return self.status()
+        self.on_session_change()
         names = list(SERVICES) if service == "both" else [service]
         self._login = {
             "state": "in_progress",
@@ -316,6 +320,7 @@ class AuthManager:
                 pass
 
     async def forget(self) -> dict:
+        self.on_session_change()
         await self._cancel_login()
         async with self._operation:
             await self._close_backend()
@@ -339,6 +344,7 @@ class AuthManager:
         return self.status()
 
     async def _close_backend(self) -> None:
+        self.on_session_change()
         if self._backend is not None:
             try:
                 await self._backend.close()
