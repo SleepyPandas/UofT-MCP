@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "uoft-mcp"
-version = "0.5.0"
+version = "0.6.0"
 description = "MCP tools for UofT Timetable Builder and read-only Degree Explorer and ACORN data."
 readme = "README.md"
 license = "MIT"

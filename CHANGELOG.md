@@ -1,21 +1,30 @@
 # Changelog
 
-## Unreleased — efficiency infrastructure
+## 0.6.0 — 2026-09-20
 
-- Default to seven MCP tools with progressive operation discovery, validated read
-  batches, and short-lived result handles. Preserve the original 25-tool contract
-  through `--tool-profile legacy`; restart clients when switching profiles.
-- Share typed operation handlers and schemas between profiles. Batch up to eight
-  reads, deduplicate equivalent requests, cap public concurrency at four, and
-  preserve authenticated read serialization and sanitized partial errors.
-- Add JSON Pointer selection, key inspection, equality filters, projection, and
-  paging with a 16 KiB selected-data budget and explicit completeness metadata.
-- Retain snapshots in memory for five minutes, bounded to 32 entries / 32 MiB of
+### Changed
+
+- Default to seven compact MCP tools (`uoft_discover`, `uoft_read`, `uoft_result`,
+  `save_timetable`, `uoft_login`, `uoft_auth_status`, `uoft_forget_session`) with
+  progressive operation discovery, validated read batches, and short-lived result handles.
+  Preserve the original 25-tool contract through `--tool-profile legacy`; restart
+  clients when switching profiles.
+- Share typed operation handlers and schemas between compact and legacy profiles.
+  Batch up to eight reads, deduplicate equivalent requests, cap public concurrency
+  at four, and preserve authenticated read serialization and sanitized partial errors.
+
+### Added
+
+- Bounded in-memory result snapshots and selection with JSON Pointer selection, key
+  inspection, equality filters, projection, and paging with a 16 KiB selected-data
+  budget and explicit completeness metadata via `uoft_result`.
+- In-memory snapshot retention for five minutes, bounded to 32 entries / 32 MiB of
   serialized data. Invalidate private snapshots on session changes and prevent
   in-flight reads from restoring invalidated private results.
-- Add offline benchmark budgets and tests for both profiles, batching, selection,
-  retention, authentication races, and stdio. Document migration and extension in
-  [EFFICIENCY.md](EFFICIENCY.md). No new university write capability or release.
+- Offline benchmark budgets and regression tests for both profiles, batching,
+  selection, retention, authentication races, and stdio (285 tests passing).
+- Comprehensive migration, workflow, and architecture documentation in
+  [EFFICIENCY.md](EFFICIENCY.md).
 
 ## 0.5.0 — 2026-09-19
 
