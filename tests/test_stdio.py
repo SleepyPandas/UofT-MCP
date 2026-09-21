@@ -12,13 +12,16 @@ from mcp.client.stdio import StdioServerParameters
 
 
 @pytest.mark.anyio
-async def test_sdk_connects_to_stdio_from_another_directory(tmp_path):
+@pytest.mark.parametrize("profile,count", [("compact", 7), ("legacy", 25)])
+async def test_sdk_connects_to_stdio_from_another_directory(tmp_path, profile, count):
     parameters = StdioServerParameters(
-        command=sys.executable, args=["-m", "uoft_mcp"], cwd=str(tmp_path)
+        command=sys.executable,
+        args=["-m", "uoft_mcp", "--tool-profile", profile],
+        cwd=str(tmp_path),
     )
     with anyio.fail_after(20):
         async with Client(parameters, mode="legacy") as client:
-            assert len((await client.list_tools()).tools) == 25
+            assert len((await client.list_tools()).tools) == count
             result = await client.call_tool("uoft_auth_status", {})
             status = json.loads(result.content[0].text)
             assert status["services"]["acorn"]["state"] == "not_checked"

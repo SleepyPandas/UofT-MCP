@@ -59,6 +59,8 @@ def test_no_subcommand_starts_stdio(monkeypatch):
     import uoft_mcp.server
 
     server = Mock()
-    monkeypatch.setattr(uoft_mcp.server, "create_server", lambda: server)
+    factory = Mock(return_value=server)
+    monkeypatch.setattr(uoft_mcp.server, "create_server", factory)
     cli.main([])
+    factory.assert_called_once_with(tool_profile="compact")
     server.run.assert_called_once_with(transport="stdio")

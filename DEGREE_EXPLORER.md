@@ -1,6 +1,21 @@
 # Degree Explorer read tools
 
-Nine tools read Degree Explorer using the connected student's saved UofT session.
+The default compact profile exposes nine Degree Explorer read operations through
+`uoft_read`. Find their schemas with `uoft_discover` using
+`service: "degree_explorer"`. For example:
+
+```json
+{"requests":[{"operation":"degree_explorer_get_academic_history"},
+{"operation":"degree_explorer_get_planner"}]}
+```
+
+Compact responses have bounded previews and transient handles. Inspect actual keys
+with `uoft_result` and `selection: {"mode":"keys"}`, then select a subtree or page.
+Selection is local; it introduces no new university query parameters. See
+[result contracts and privacy](EFFICIENCY.md).
+
+The full-response descriptions and direct-call examples below apply to
+`--tool-profile legacy` and the underlying operations. In that profile, nine tools read Degree Explorer using the connected student's saved UofT session.
 Every tool accepts an empty argument object (`{}`); there are no student IDs,
 credentials, URLs, arbitrary query parameters, filters, or pagination arguments.
 Each call makes one GET to a fixed route and returns the complete upstream JSON
@@ -57,13 +72,15 @@ URLs, or raw exception details are returned in errors.
 Reads serialize with login, refresh, and forget. Rotated cookies use the existing
 encrypted session store, including its memory-only behavior. Student response
 bodies are not logged or written to the store; Playwright's retained response is
-disposed after every call. The returned academic data is visible to the MCP client.
+disposed after every call. Compact mode retains the parsed result in a bounded
+five-minute memory store and invalidates private handles on authentication changes.
+The selected returned academic data is visible to the MCP client.
 Successful HTTP JSON, including any application-level error envelope, is returned
 as supplied; it is not treated as a guarantee of academic eligibility or completion.
 
 ## Contract and verification
 
-The implementation follows the
+The legacy tool interface follows the
 [MCP tools specification](https://modelcontextprotocol.io/specification/2025-11-25/server/tools):
 unique names, descriptions, object input schemas with no declared parameters,
 read-only/non-destructive/idempotent annotations, an explicit external-service
@@ -80,6 +97,6 @@ their names or semantics; this MCP deliberately exposes no such parameter bag.
 Offline tests cover all nine mappings through the MCP SDK, discovery, JSON
 preservation, authentication errors, sanitized failures, response cleanup, saved
 access restoration, cookie rotation, and concurrent login/forget. The existing
-stdio subprocess tests verify discovery of all 25 server tools. No authenticated
+stdio subprocess tests verify both the 25-tool legacy and seven-tool compact profiles. No authenticated
 live reads were performed for this change; the cell popup's usefulness without
 UI context remains unverified. No Degree Explorer mutation routes are exposed.

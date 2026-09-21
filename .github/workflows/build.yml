@@ -1,0 +1,48 @@
+name: Test Build Distributions
+
+on:
+  pull_request:
+    branches: [main, master]
+    types: [opened, reopened, synchronize]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Test and build distributions
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+
+      - name: Install Python
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync --locked --managed-python
+
+      - name: Build distributions
+        run: uv build
+
+      - name: Verify distribution contents
+        run: |
+          uv run python -c "import glob, zipfile; wheels = sorted(glob.glob('dist/*.whl')); assert wheels, 'No wheel found'; z = zipfile.ZipFile(wheels[-1]); print('Verified wheel:', wheels[-1]); assert any(n.endswith('uoft_mcp/timetable_builder/reference.json') for n in z.namelist()), 'Missing reference.json in wheel'"
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error

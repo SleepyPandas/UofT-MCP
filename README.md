@@ -2,10 +2,15 @@
 
 A small Python MCP server for the public [UofT Timetable Builder](https://ttb.utoronto.ca/)
 API, with read-only Degree Explorer and ACORN access and reusable UofT login.
-It exposes twenty-five tools over local stdio using the
-[official MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk): ten
-public timetable tools, nine Degree Explorer reads, three ACORN reads, and three
-local authentication controls.
+It exposes **seven tools by default** over local stdio using the
+[official MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk).
+Discover operations on demand, batch independent reads, and select or page short-lived
+results without repeatedly fetching them. The existing 25-tool interface remains
+available with `--tool-profile legacy`. Both profiles support the same timetable,
+Degree Explorer, ACORN, and authentication capabilities.
+
+See the [efficiency and architecture guide](EFFICIENCY.md) for migration, worked
+examples, result limits, extension instructions, and reproducible benchmarks.
 
 > **Work in progress:** Degree Explorer and three basic ACORN reads are available
 > in this checkout. Degree Explorer writes and ACORN enrolment changes are not implemented.
@@ -48,7 +53,7 @@ URL, or listening port is needed. The first start can take longer while uv downl
 Python and the dependencies; later starts use its cache.
 
 To pin a release instead of following the newest release, use
-`"args": ["uoft-mcp==0.4.1"]`.
+`"args": ["uoft-mcp==0.6.0"]`.
 
 ## Local Development
 
@@ -108,7 +113,42 @@ Use **"Check my UofT connection"** to verify access, or **"Forget my saved UofT
 session"** to delete local access. See [authentication setup and behavior](AUTHENTICATION.md)
 for terminal commands, memory-only sessions, expiry, and troubleshooting.
 
-## Tools
+## Default compact tools
+
+| Tool | Purpose |
+| --- | --- |
+| `uoft_discover` | Search read operations; request their argument schemas only when needed. |
+| `uoft_read` | Batch up to eight validated reads, with optional selection and bounded previews. |
+| `uoft_result` | Inspect, filter, project, or page an in-memory snapshot without refetching. |
+| `save_timetable` | Explicitly create an anonymous public timetable share. |
+| `uoft_login` | Start or reuse official browser login. |
+| `uoft_auth_status` | Check connection state and login progress. |
+| `uoft_forget_session` | Delete saved access and invalidate private snapshots. |
+
+For example, call `uoft_discover` with
+`{"query":"get_course_details","detail":"schemas"}`, then `uoft_read` with:
+
+```json
+{"requests":[
+  {"operation":"get_course_details","arguments":{"course_code":"CSC108H1"}},
+  {"operation":"get_course_details","arguments":{"course_code":"CSC148H1"}}
+]}
+```
+
+Results contain per-operation data or errors, retrieval timestamps, and transient
+handles. Arrays default to 20 rows, with a maximum of 100; selected JSON data is
+bounded to 16 KiB per item. Oversized objects return an explicit overview. Use
+`uoft_result` with the handle and a narrower JSON Pointer, projection, or page.
+Snapshots expire after five minutes and are never persisted to disk. Private
+snapshots are invalidated on authentication changes. See [selection and result
+contracts](EFFICIENCY.md#selection) before interpreting partial results.
+
+## Legacy tools and operation names
+
+Run `uv run --locked python -m uoft_mcp --tool-profile legacy` for the original
+interface. The following read names are also valid `operation` values inside
+compact `uoft_read`. `save_timetable` and the three auth controls remain direct
+tools and cannot be included in a read batch.
 
 | Tool | Arguments and purpose |
 | --- | --- |
@@ -139,26 +179,24 @@ for terminal commands, memory-only sessions, expiry, and troubleshooting.
 | `degree_explorer_get_cell_details` | No arguments. Read the unparameterized planner popup endpoint; it cannot target a cell. |
 
 See [Degree Explorer tools and workflow](DEGREE_EXPLORER.md) for all nine authenticated
-reads, their fixed API routes, and limitations. Each accepts `{}` and reads only
+reads, their fixed API routes, and limitations. Each underlying operation accepts `{}` and reads only
 the connected student's account.
 
 See [ACORN tools and workflow](ACORN.md) for the three basic reads and field-selection
 examples. They reuse the connected account without opening a login browser.
 
-Each successful lookup, generation, and retrieve call returns one text block
+In legacy mode, each successful lookup, generation, and retrieve call returns one text block
 containing the complete upstream JSON. The wrapper preserves fields and arrays,
 including upstream `payload` and `status` envelopes. It does not summarize or
 truncate course data. `save_timetable` keeps the upstream share object and adds
 `share_url`.
 
-> **Token-cost note:** ACORN tools return compact JSON and accept optional `fields`
-> to reduce response data before it reaches the model. Other tools still return full
-> upstream JSON. Future client-side code execution can process intermediate results
-> outside model context, as described in Anthropic's
-> [Code execution with MCP](https://www.anthropic.com/engineering/code-execution-with-mcp).
-> This server does not provide a code-execution sandbox.
+Compact mode performs discovery, bounded batching, and local result selection before
+returning data. It does not run arbitrary code or supply a code-execution sandbox.
+[Measured fixture comparisons](EFFICIENCY.md#reproducible-verification) distinguish
+model-facing output savings from upstream request counts.
 
-### Example Workflow
+### Legacy example workflow
 
 1. Call `get_current_sessions` with `{}` and select a non-header entry's `value`.
 2. Call `get_divisions` or `get_reference_data` for valid filter codes.
@@ -239,7 +277,7 @@ The [PR workflow](.github/workflows/tests.yml) runs these checks on pull request
 targeting `main` or `master`, using Python 3.13 on Ubuntu. New commits cancel an
 older run for the same PR. Tests need no Chromium installation or UofT credentials.
 
-The tests run offline. They cover all twenty-five tools, request mapping, raw JSON
+The tests run offline. They cover the twenty-five legacy tools and seven compact tools, request mapping, raw JSON
 preservation, validation, HTTP errors, timeouts, connection errors, invalid JSON,
 shared-client cleanup, MCP discovery, and actual stdio subprocesses. Authentication
 tests cover encrypted persistence, restoration, browser lifecycle, expiry, locking,
@@ -248,7 +286,8 @@ Degree Explorer tests also cover all nine GET mappings, MCP schemas and annotati
 JSON preservation, sanitized errors, response disposal, saved-session reuse, and
 serialization with login and forget. These reads have not been verified against a
 live authenticated account in this change. ACORN tests additionally cover compact JSON,
-field selection, and expected root types. All 240 tests pass. A live ACORN read on
+field selection, and expected root types. Both profiles have offline regression coverage; compact tests add batching, selection,
+snapshot lifecycle, and efficiency budgets. A live ACORN read on
 2026-09-19 returned a login redirect; authenticated live verification remains pending.
 
 Previous timetable verification: 50 tests passed. Live checks of lookup, `generateYear`, `tiny/shorten`,
@@ -289,7 +328,8 @@ uoft_mcp/
 - Get division codes from the API. For example, the live API uses `ERIN` and `SCAR`
   for Mississauga and Scarborough, rather than the reference's `UTM` and `UTSC` examples.
 - Even one course can have a large response because all its sections are included.
-  Choose narrow filters and small page sizes. The wrapper never fetches extra pages.
+  Choose narrow filters and small page sizes. Compact selection reduces returned data;
+  neither profile fetches extra upstream pages automatically.
 - HTTP failures become MCP tool errors containing the endpoint and status code.
   UofT may return HTTP 404 for no matching courses. Timeouts, connection failures,
   and malformed JSON get their own readable errors. No automatic retries occur.

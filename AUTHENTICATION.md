@@ -119,6 +119,24 @@ MCP client before running terminal login/status/forget commands. A second client
 gets a `session in use` message; its public timetable tools still work. Locks are
 released on normal shutdown or process exit; do not delete a live lock file.
 
+## Transient read snapshots
+
+Both tool profiles use the same login/status/forget controls and authentication
+lock. Compact mode additionally retains parsed read results only in memory, for
+five minutes, within a 32-entry / 32 MiB serialized-data budget. Student records
+are never written to the encrypted session store or logs.
+
+Starting login or forget invalidates private handles immediately. Authentication
+failures and backend closure also invalidate them conservatively. A generation
+check prevents a read already in flight from restoring or returning a private
+result after a session change. Public timetable snapshots remain available.
+Shutdown clears all snapshots. Paging a handle never verifies authentication or
+contacts the university; its timestamp describes a past snapshot. Previously
+returned client data cannot be revoked by Forget.
+
+See [snapshot lifetime and privacy](EFFICIENCY.md#lifetime-and-privacy) for expiry,
+eviction, limits, and the distinction between snapshots and saved authentication.
+
 ## Implementation references
 
 - [Degree Explorer registry PR #2](https://github.com/SleepyPandas/unofficial-UofT-api-registry/pull/2): the connection check uses `GET /degreeExplorer/rest/dxMenu/getStudentMenu`. Live verification found an array, so the adapter validates an array rather than the registry client's object type hint.

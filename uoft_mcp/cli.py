@@ -14,6 +14,12 @@ def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
         description="UofT MCP server and local authentication controls"
     )
+    result.add_argument(
+        "--tool-profile",
+        choices=["compact", "legacy"],
+        default="compact",
+        help="MCP interface: compact (7 tools) or legacy (25 tools)",
+    )
     commands = result.add_subparsers(dest="command")
     auth = commands.add_parser("auth", help="Connect Degree Explorer and ACORN")
     actions = auth.add_subparsers(dest="action", required=True)
@@ -57,7 +63,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.command is None:
         from uoft_mcp.server import create_server
 
-        create_server().run(transport="stdio")
+        create_server(tool_profile=args.tool_profile).run(transport="stdio")
         return
     if args.action == "setup":
         # Browser installation is explicit and never runs during server startup or a tool call.
