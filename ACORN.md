@@ -1,5 +1,22 @@
 # ACORN read tools
 
+The default compact profile exposes these capabilities as operations inside
+`uoft_read`. Discover their schemas with `uoft_discover` using `service: "acorn"`.
+For example:
+
+```json
+{"requests":[{"operation":"acorn_get_eligible_registrations",
+"selection":{"fields":["sessionDescription","registrationParams"],"limit":5}}]}
+```
+
+Compact results have bounded previews and short-lived handles; use `uoft_result`
+for further selection without refetching. Prefer `selection.fields` to preserve the
+original response in the snapshot. Passing `arguments.fields` retains only the
+operation's already-projected response. See [efficiency contracts](EFFICIENCY.md).
+
+The direct calls and full-response behavior below describe `--tool-profile legacy`
+and the underlying operations, whose arguments and route mappings are unchanged.
+
 These three tools use the connected student's ACORN account. They expose no
 course enrolment, account changes, arbitrary URLs, or arbitrary query parameters.
 
@@ -53,29 +70,26 @@ services, malformed JSON, and unexpected root types return sanitized tool errors
 Playwright response bodies are disposed even when reads fail or are cancelled.
 
 Only session cookies/storage use the existing encrypted persistence mechanism;
-student payloads are neither logged nor saved. Returned JSON is visible to the
+student payloads are neither logged nor saved to disk. Compact mode retains
+bounded, expiring snapshots in process memory. Returned JSON is visible to the
 MCP client. Field selection occurs locally after fetching the upstream response,
 so it reduces model-facing output, not upstream bandwidth. Omitting fields may
-still return a large response; there is no implicit truncation.
+still return a large response in legacy mode. Compact mode provides explicit
+completeness and pagination metadata instead.
 
 ## Efficient composition
 
-The transport in `uoft_mcp.acorn.client`, authenticated reads through
-`AuthManager.read_acorn`, and projection in `uoft_mcp.acorn.selection` are separate
-from MCP wrappers. Tools have short descriptions and expose only one optional
-argument. A future agent execution environment can call MCP tools, parse their
-JSON text, filter or combine results, and return only the needed summary.
-
-This follows the direction of Anthropic's
-[Code execution with MCP](https://www.anthropic.com/engineering/code-execution-with-mcp).
-The server itself provides no execution sandbox, dynamic tool-discovery system,
-or automatic privacy boundary around data a client returns to its model.
-Existing Degree Explorer interfaces remain unchanged.
+The shared registry exposes these reads through both profiles. Compact mode supports
+local schema discovery, validated batches, JSON Pointer selection, filtering, and
+paging of transient results. Authenticated reads remain serialized with session
+changes; batching reduces MCP round trips rather than parallelizing cookie access.
+The server provides no code sandbox. Client code execution can compose operations
+and process results separately. See the [architecture guide](EFFICIENCY.md).
 
 ## Verification
 
-The full offline suite passes 240 tests, including all three mappings through the
-MCP SDK, 25-tool stdio discovery, projections, unexpected responses, authentication
+The offline suite covers all three mappings through the MCP SDK, both tool profiles
+over stdio, projections, unexpected responses, authentication
 failures, cancellation cleanup, cookie rotation, and login/forget serialization.
 Fixtures are synthetic; no student records are committed. Ruff lint and format
 checks pass.
