@@ -7,6 +7,7 @@ import logging
 import subprocess
 import sys
 
+from uoft_mcp.doctor import run_doctor
 from uoft_mcp.utilities.auth import AuthManager
 
 
@@ -21,6 +22,12 @@ def parser() -> argparse.ArgumentParser:
         help="MCP interface: compact (7 tools) or legacy (25 tools)",
     )
     commands = result.add_subparsers(dest="command")
+    doctor = commands.add_parser("doctor", help="Check this install and print MCP client config")
+    doctor.add_argument(
+        "--command",
+        dest="command_path",
+        help="Server executable to put in the config (default: this install)",
+    )
     auth = commands.add_parser("auth", help="Connect Degree Explorer and ACORN")
     actions = auth.add_subparsers(dest="action", required=True)
     actions.add_parser("setup", help="Install Playwright's matching Chromium browser")
@@ -69,6 +76,8 @@ def main(argv: list[str] | None = None) -> None:
 
         create_server(tool_profile=args.tool_profile).run(transport="stdio")
         return
+    if args.command == "doctor":
+        raise SystemExit(run_doctor(args.command_path))
     if args.action == "setup":
         # Browser installation is explicit and never runs during server startup or a tool call.
         try:
