@@ -7,7 +7,7 @@ import json
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Annotated, Any, Literal, Never
+from typing import Annotated, Any, Literal
 from urllib.parse import quote
 
 import httpx
@@ -15,7 +15,7 @@ from mcp.server import MCPServer
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from uoft_mcp.acorn.client import AcornEndpoint, AcornError
 from uoft_mcp.acorn.selection import select_fields, validate_fields
@@ -24,50 +24,32 @@ from uoft_mcp.degree_explorer.client import DegreeExplorerEndpoint, DegreeExplor
 from uoft_mcp.operations import Registry
 from uoft_mcp.research import register_research
 from uoft_mcp.results import ResultStore
-from uoft_mcp.status import StatusKind, describe
-from uoft_mcp.timetable_builder.client import TimetableAPIError, create_http_client, request_json
+from uoft_mcp.timetable_builder.client import (
+    TTB_ORIGIN,
+    TimetableAPIError,
+    create_http_client,
+    request_json,
+    shorten_state,
+)
+from uoft_mcp.timetable_builder.generation import (
+    GenerationPlan,
+    NonEmptyString,
+    SectionCode,
+    generation_body,
+)
+from uoft_mcp.timetable_builder.planner import register_planner
 from uoft_mcp.utilities.auth import AuthManager
 from uoft_mcp.utilities.auth_browser import ServiceChoice
 
-NonEmptyString = Annotated[str, Field(min_length=1, pattern=r"\S")]
 NonNegativeInt = Annotated[int, Field(ge=0)]
 PositiveInt = Annotated[int, Field(ge=1)]
-SectionCode = Literal["F", "S", "Y"]
-TimePreference = Literal["early", "balanced", "late"]
-Weekday = Literal["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
-ClockTime = Annotated[str, Field(pattern=r"^\d{1,2}:\d{2}$")]
-ObjectId = Annotated[str, Field(pattern=r"^[A-Za-z0-9]+$")]
 ShareId = Annotated[str, Field(min_length=1, pattern=r"^[A-Za-z0-9]+$")]
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True)
 AUTHENTICATED_READ = ToolAnnotations(
     read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=True
 )
 SAVE_SHARE = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False)
-TTB_ORIGIN = "https://ttb.utoronto.ca"
 TIMETABLE_STATE_KEYS = frozenset({"sessions", "timetables", "plans"})
-
-
-class BlockedTime(BaseModel):
-    """A weekday interval the solver should leave empty."""
-
-    day: Weekday
-    start: ClockTime
-    end: ClockTime
-
-
-class GenerationCourse(BaseModel):
-    """One course the solver should schedule, identified by Timetable Builder id."""
-
-    course_id: ObjectId
-    activity_types: Annotated[list[NonEmptyString], Field(min_length=1)]
-
-
-class GenerationPlan(BaseModel):
-    """One term's courses, time preference, and optional blocked intervals."""
-
-    courses: Annotated[list[GenerationCourse], Field(min_length=1)]
-    preference: TimePreference = "balanced"
-    blocked_times: list[BlockedTime] | None = None
 
 
 async def _acorn(
@@ -138,87 +120,12 @@ async def _request_data(
         raise ToolError(str(exc)) from exc
 
 
-def _fitness_option(preference: TimePreference) -> str:
-    """Map the public preference names to the solver's fitnessFunctionOption values."""
-    match preference:
-        case "early":
-            return "MORNING_WEIGHTED"
-        case "balanced":
-            return "BALANCED"
-        case "late":
-            return "AFTERNOON_WEIGHTED"
-        case _:
-            unused: Never = preference
-            raise ToolError(f"Unsupported preference: {unused}")
-
-
-def _weekday_number(day: Weekday) -> int:
-    """Map Timetable Builder weekday names onto the solver's 1-5 day numbers."""
-    match day:
-        case "Monday":
-            return 1
-        case "Tuesday":
-            return 2
-        case "Wednesday":
-            return 3
-        case "Thursday":
-            return 4
-        case "Friday":
-            return 5
-        case _:
-            unused: Never = day
-            raise ToolError(f"Unsupported weekday: {unused}")
-
-
-def _millis_of_day(clock: str) -> int:
-    """Convert a 24-hour HH:MM clock time into the API's milliseconds-since-midnight value."""
-    hours_text, minutes_text = clock.split(":")
-    hours = int(hours_text)
-    minutes = int(minutes_text)
-    if hours > 23 or minutes > 59:
-        raise ToolError(f"Invalid time {clock}; use HH:MM on a 24-hour clock.")
-    return (hours * 3600 + minutes * 60) * 1000
-
-
-def _blocked_off(blocked_times: list[BlockedTime] | None) -> list[dict[str, Any]]:
-    """Convert optional blocked clock ranges into the generateYear blockedOff objects."""
-    intervals: list[dict[str, Any]] = []
-    for blocked in blocked_times or []:
-        start = _millis_of_day(blocked.start)
-        end = _millis_of_day(blocked.end)
-        if start >= end:
-            raise ToolError(
-                f"{blocked.day} blocked time {blocked.start} must be earlier than {blocked.end}."
-            )
-        day = _weekday_number(blocked.day)
-        intervals.append(
-            {
-                "start": {"day": day, "millisofday": start},
-                "end": {"day": day, "millisofday": end},
-            }
-        )
-    return intervals
-
-
-def _generation_body(plans: list[GenerationPlan]) -> list[dict[str, Any]]:
-    """Build the verified generateYear request from validated MCP arguments."""
-    return [
-        {
-            "courses": [
-                {
-                    "id": course.course_id,
-                    "sections": [
-                        {"name": "*", "type": activity_type}
-                        for activity_type in course.activity_types
-                    ],
-                }
-                for course in plan.courses
-            ],
-            "fitnessFunctionOption": _fitness_option(plan.preference),
-            "blockedOff": _blocked_off(plan.blocked_times),
-        }
-        for plan in plans
-    ]
+async def _share_state(ctx: Context[AppContext], state: dict[str, Any]) -> dict[str, Any]:
+    """Create the anonymous share record, surfacing upstream failures as tool errors."""
+    try:
+        return await shorten_state(ctx.request_context.lifespan_context.timetable, state)
+    except TimetableAPIError as exc:
+        raise ToolError(str(exc)) from exc
 
 
 def validate_operation(name: str, arguments: dict) -> None:
@@ -227,7 +134,7 @@ def validate_operation(name: str, arguments: dict) -> None:
         if arguments["lower_threshold"] > arguments["upper_threshold"]:
             raise ToolError("Invalid autocomplete thresholds.")
     elif name == "generate_timetable":
-        _generation_body(arguments["plans"])
+        generation_body(arguments["plans"])
     elif name.startswith("acorn_"):
         try:
             validate_fields(arguments.get("fields"))
@@ -279,6 +186,7 @@ def create_server(
             "Discover sessions/reference values together before selecting course filters. "
             "Use uoft_login for browser login; never request credentials or Duo codes in chat. "
             "Check uoft_auth_status for progress. Reads never initiate login. "
+            "Use plan_timetable to turn course codes into a schedule in one call. "
             "save_timetable creates a public share. No enrolment or Degree Explorer writes."
         )
         if tool_profile == "compact"
@@ -431,7 +339,7 @@ def create_server(
         blocked_times use weekday names and 24-hour HH:MM clock times. This does
         not enroll students or write an ACORN timetable.
         """
-        return await _request(ctx, "POST", "generateYear", body=_generation_body(plans))
+        return await _request(ctx, "POST", "generateYear", body=generation_body(plans))
 
     @register(structured_output=False, annotations=SAVE_SHARE)
     async def save_timetable(ctx: Context[AppContext], timetable: dict[str, Any]) -> str:
@@ -447,19 +355,7 @@ def create_server(
         if missing:
             names = ", ".join(sorted(missing))
             raise ToolError(f"timetable is missing required keys: {names}.")
-        encoded = quote(
-            f"{TTB_ORIGIN}/#!/?{json.dumps(timetable, ensure_ascii=False, separators=(',', ':'))}",
-            safe="!~*'()",
-        )
-        data = await _request_data(
-            ctx, "POST", "tiny/shorten", content=encoded, content_type="text/plain"
-        )
-        if not isinstance(data, dict) or not isinstance(data.get("id"), str) or not data["id"]:
-            raise ToolError(
-                describe(
-                    StatusKind.PAGE_CHANGED, "timetable", "no share id returned by tiny/shorten"
-                ).message
-            )
+        data = await _share_state(ctx, timetable)
         return json.dumps(
             {**data, "share_url": f"{TTB_ORIGIN}/#!/?t={data['id']}"},
             ensure_ascii=False,
@@ -646,6 +542,7 @@ def create_server(
         return json.dumps(result, ensure_ascii=False)
 
     register_research(server)
+    register_planner(server)
     if tool_profile == "compact":
         register_compact(server, registry)
     return server

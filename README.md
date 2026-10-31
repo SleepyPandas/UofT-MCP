@@ -2,10 +2,12 @@
 
 A small Python MCP server for the public [UofT Timetable Builder](https://ttb.utoronto.ca/)
 API, with read-only Degree Explorer and ACORN access and reusable UofT login.
-It exposes **nine tools by default** over local stdio using the
+It exposes **ten tools by default** over local stdio using the
 [official MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk).
 Discover operations on demand, batch independent reads, and select or page short-lived
-results without repeatedly fetching them. The 27-tool interface (the original 25 plus the two course research tools) remains
+results without repeatedly fetching them. Ask for a whole schedule with the one-call
+`plan_timetable` tool. The 28-tool interface (the original 25 plus the two course
+research tools and `plan_timetable`) remains
 available with `--tool-profile legacy`. Both profiles support the same timetable,
 Degree Explorer, ACORN, and authentication capabilities.
 
@@ -17,8 +19,8 @@ examples, result limits, extension instructions, and reproducible benchmarks.
 
 Public timetable tools require no login, API key, database, web server, or environment
 variables. This is an
-unofficial wrapper; it does not enroll students or write to ACORN. Saving a timetable
-creates an anonymous public share link on the Timetable Builder, not a personal
+unofficial wrapper; it does not enroll students or write to ACORN. Saving or planning a
+timetable with sharing on creates an anonymous public share link on the Timetable Builder, not a personal
 account record.
 
 Read the [release notes](CHANGELOG.md) for the current version's scope and known
@@ -184,6 +186,7 @@ for terminal commands, memory-only sessions, expiry, and troubleshooting.
 | `uoft_discover` | Search read operations; request their argument schemas only when needed. |
 | `uoft_read` | Batch up to eight validated reads, with optional selection and bounded previews. |
 | `uoft_result` | Inspect, filter, project, or page an in-memory snapshot without refetching. |
+| `plan_timetable` | Turn course codes into a conflict-free schedule in one call, with an optional shareable Timetable Builder link. |
 | `save_timetable` | Explicitly create an anonymous public timetable share. |
 | `uoft_login` | Start or reuse official browser login. |
 | `uoft_auth_status` | Check connection state and login progress. |
@@ -236,12 +239,45 @@ Example questions:
 - "Compare MAT135H1 and MAT137Y1: credits, breadth, and instructors."
 - "Which Winter 2027 Scarborough courses cover calculus?"
 
+## Plan a timetable in one call
+
+Ask: **"Build me a Fall schedule for CSC148, MAT137 and STA130 with nothing before 10am."**
+Your assistant resolves the full codes and calls `plan_timetable` once:
+
+```json
+{
+  "course_codes": ["CSC148H1", "MAT137Y1", "STA130H1"],
+  "term": "F",
+  "preference": "balanced",
+  "blocked_times": [
+    {"day": "Monday", "start": "00:00", "end": "10:00"},
+    {"day": "Tuesday", "start": "00:00", "end": "10:00"}
+  ]
+}
+```
+
+Block one entry per weekday for "nothing before 10am" (two are shown). The tool finds each course's offering, derives its lecture, tutorial, and practical
+types from the sections that are open and scheduled, asks UofT's solver for conflict-free
+sections, and returns them per term with meeting times such as
+`Thu 09:00-11:00 BA 1130`, instructors, and a weekly overview. With `share=true`
+(the default) it also returns a `share_url` that opens the same plan, courses and
+blocked times included, on the official Timetable Builder. That link is a public,
+anonymous share record; pass `share=false` to skip it. It never enrols you.
+
+- Codes must be complete (`CSC148H1`). Write `CSC148H1-F` or set `term` when a course runs
+  in more than one term; unknown, cancelled, summer-only, or ambiguous codes get a plain
+  explanation. A year-long course (`Y`) is scheduled once and appears in both terms.
+- Blocked times are preferences for UofT's solver. If it cannot avoid one, the result is
+  still returned with a warning. Overlapping meetings or a section type that cannot be
+  placed are reported as "no schedule without conflicts" so you can relax blocked times.
+- Up to ten courses per call, Fall-Winter sessions only.
+
 ## Legacy tools and operation names
 
 Run `uv run --locked python -m uoft_mcp --tool-profile legacy` for the original
 interface. The following read names are also valid `operation` values inside
-compact `uoft_read`. `save_timetable` and the three auth controls remain direct
-tools and cannot be included in a read batch.
+compact `uoft_read`. `plan_timetable`, `save_timetable` and the three auth controls
+remain direct tools and cannot be included in a read batch.
 
 | Tool | Arguments and purpose |
 | --- | --- |
@@ -255,6 +291,7 @@ tools and cannot be included in a read batch.
 | `get_course_details` | Required `course_code`; optional `section_code` of `F`, `S`, or `Y`. The returned course `id` is required by `generate_timetable`. |
 | `search_courses` | Optional code/title, section, description, division, session, campus, delivery, and pagination filters. |
 | `generate_timetable` | Required `plans` array. Each plan has `courses` (`course_id` plus `activity_types`), optional `preference` of `early`, `balanced`, or `late`, and optional `blocked_times`. |
+| `plan_timetable` | Required `course_codes` (1-10 full codes such as `CSC148H1`, optionally `CSC148H1-F`). Optional `term` (`F`, `S`, `Y`), `preference` (`early`, `balanced`, `late`), `blocked_times`, and `share=true`. Returns the chosen sections, a weekly overview, and `share_url`. Not available inside `uoft_read`. |
 | `save_timetable` | Required `timetable` object with `sessions`, `timetables`, and `plans`. Returns the share `id` plus a `share_url`. |
 | `retrieve_timetable` | Required `share_id` from `save_timetable`. |
 | `uoft_login` | Optional `service` of `degree_explorer`, `acorn`, or `both` (default), plus `remember=true`. Starts or reuses official browser login and returns while you complete Duo. |
@@ -374,7 +411,7 @@ older run for the same PR. Tests need no Chromium installation or UofT credentia
 The [install workflow](.github/workflows/install.yml) also runs the install scripts, a stdio
 smoke test of the installed command, the tests, and lint on Ubuntu, macOS, and Windows.
 
-The tests run offline. They cover the twenty-seven legacy tools and nine compact tools, request mapping, raw JSON
+The tests run offline. They cover the twenty-eight legacy tools and ten compact tools, request mapping, raw JSON
 preservation, validation, HTTP errors, timeouts, connection errors, invalid JSON,
 shared-client cleanup, MCP discovery, and actual stdio subprocesses. Authentication
 tests cover encrypted persistence, restoration, browser lifecycle, expiry, locking,

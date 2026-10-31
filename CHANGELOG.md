@@ -12,13 +12,22 @@
   instructors, meeting times, enrolment, waitlist, and full/cancelled flags. A card is
   about 3 KB instead of the raw 27 KB.
 - Pure formatter module `uoft_mcp/timetable_builder/format.py` with offline unit tests.
-- - `UOFT_MCP_BROWSER=auto|msedge|chrome|chromium` selects the sign-in browser.
+- `plan_timetable`, a direct tool in both profiles that turns course codes into a
+  conflict-free schedule in one call: resolves each code and term, derives lecture,
+  tutorial and practical types from open sections, solves per term with the UofT solver
+  (year-long courses are scheduled once and block their winter meetings for the winter
+  solve), reports chosen sections, instructors and a weekly overview, and by default
+  returns a verified `https://ttb.utoronto.ca/#!/?t=` share link (`share=false` skips it).
+  Blocked times the solver cannot honour are returned as warnings; overlaps or missing
+  section types are reported as "no schedule without conflicts".
+- `UOFT_MCP_BROWSER=auto|msedge|chrome|chromium` selects the sign-in browser.
 
 ### Changed
 
-- Tool counts are now nine (compact) and 27 (legacy). Tool definitions grow by 2,578
-  bytes in both profiles, so compact definitions are 57.2% smaller than legacy (was
-  65.7%); the 50% regression budget in the tests is unchanged.
+- Tool counts are now ten (compact) and 28 (legacy). The course research tools and
+  `plan_timetable` add 4,499 bytes of tool definitions to both profiles, so compact
+  definitions are 52.2% smaller than legacy (was 65.7%); the 50% regression budget in
+  the tests is unchanged.
 - Compact instructions tell models to prefer `find_courses` and `course_info` for course
   questions.
 - Sign in with an installed Microsoft Edge or Google Chrome, falling back to Chromium
@@ -33,6 +42,9 @@
 - The install scripts no longer suggest downloading Chromium. `UOFT_MCP_WITH_BROWSER=1`
   still downloads it (by running `auth setup` with `UOFT_MCP_BROWSER=chromium`, which
   also works with already-published releases).
+- Move the `generateYear` request models and share posting into
+  `timetable_builder/generation.py` and `timetable_builder/client.py`; `generate_timetable`
+  and `save_timetable` behave exactly as before.
 
 ## 0.6.0 — 2026-09-20
 
