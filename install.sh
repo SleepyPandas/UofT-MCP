@@ -47,7 +47,7 @@ EXE="$BIN_DIR/uoft-mcp"
 
 if [ "${UOFT_MCP_WITH_BROWSER:-0}" = "1" ]; then
     say "Downloading Chromium for UofT sign-in..."
-    "$EXE" auth setup --force || die "Chromium download failed (see above)."
+    UOFT_MCP_BROWSER=chromium "$EXE" auth setup || die "Chromium download failed (see above)."
 fi
 
 say ""

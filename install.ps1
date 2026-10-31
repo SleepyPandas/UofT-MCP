@@ -55,9 +55,22 @@ function Install-UofTMcp {
 
     if ($env:UOFT_MCP_WITH_BROWSER -eq '1') {
         Write-Host 'Downloading Chromium for UofT sign-in...'
-        & $exe auth setup --force
-        if ($LASTEXITCODE -ne 0) {
-            throw "Chromium download failed (exit code $LASTEXITCODE)."
+        # Published releases ignore this variable and always download; newer ones treat it
+        # as an explicit Chromium request instead of skipping when Edge or Chrome exists.
+        $previousBrowser = $env:UOFT_MCP_BROWSER
+        $env:UOFT_MCP_BROWSER = 'chromium'
+        try {
+            & $exe auth setup
+            $setupExit = $LASTEXITCODE
+        } finally {
+            if ($null -eq $previousBrowser) {
+                Remove-Item Env:\UOFT_MCP_BROWSER -ErrorAction SilentlyContinue
+            } else {
+                $env:UOFT_MCP_BROWSER = $previousBrowser
+            }
+        }
+        if ($setupExit -ne 0) {
+            throw "Chromium download failed (exit code $setupExit)."
         }
     }
 

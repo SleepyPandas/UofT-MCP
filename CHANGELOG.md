@@ -14,7 +14,8 @@
 - `uoft-mcp auth setup` skips the Chromium download when Edge or Chrome is installed;
   use `--force` to download anyway.
 - The install scripts no longer suggest downloading Chromium. `UOFT_MCP_WITH_BROWSER=1`
-  still downloads it (using `auth setup --force`).
+  still downloads it (by running `auth setup` with `UOFT_MCP_BROWSER=chromium`, which
+  also works with already-published releases).
 
 ### Added
 

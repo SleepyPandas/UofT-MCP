@@ -108,6 +108,17 @@ def test_setup_checks_the_requested_browser(monkeypatch):
     assert seen == ["chromium"]
 
 
+def test_setup_downloads_for_chromium_override_even_with_system_browsers(monkeypatch):
+    # The installers rely on this: UOFT_MCP_BROWSER=chromium alone means "download".
+    monkeypatch.setenv(BROWSER_ENV, "chromium")
+    run = Mock(return_value=Mock(returncode=0))
+    monkeypatch.setattr(cli.subprocess, "run", run)
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["auth", "setup"])
+    assert exc.value.code == 0
+    run.assert_called_once_with(INSTALL, stdout=sys.stderr, stderr=sys.stderr, check=False)
+
+
 def test_setup_rejects_an_invalid_override_without_downloading(monkeypatch, capsys):
     monkeypatch.setenv(BROWSER_ENV, "netscape")
     run = Mock()
