@@ -35,7 +35,11 @@ def parser() -> argparse.ArgumentParser:
     login.add_argument("--service", choices=["degree_explorer", "acorn", "both"], default="both")
     login.add_argument("--no-remember", action="store_true", help="Use a fresh memory-only session")
     actions.add_parser("status", help="Verify saved connections without opening a login window")
-    actions.add_parser("forget", help="Delete local saved UofT sessions and their encryption key")
+    actions.add_parser(
+        "forget",
+        aliases=["logout"],
+        help="Delete local saved UofT sessions and their encryption key",
+    )
     return result
 
 
