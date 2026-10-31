@@ -1,12 +1,15 @@
 """HTTP configuration and error handling for the public Timetable Builder API."""
 
+import json
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
 from uoft_mcp.status import ServiceReadError, StatusKind, classify_exception, describe
 
 BASE_URL = "https://api.easi.utoronto.ca/ttb/"
+TTB_ORIGIN = "https://ttb.utoronto.ca"
 TIMEOUT_SECONDS = 30.0
 HEADERS = {
     "Accept": "application/json",
@@ -70,3 +73,23 @@ async def request_json(
         raise TimetableAPIError.from_status(
             describe(StatusKind.PAGE_CHANGED, "timetable", f"invalid JSON at {path}")
         ) from exc
+
+
+async def shorten_state(client: httpx.AsyncClient, state: dict[str, Any]) -> dict[str, Any]:
+    """Store a serialized Timetable Builder state the way the official site's share button does.
+
+    The frontend posts encodeURIComponent of its own URL with the state JSON as the query.
+    Returns the upstream share object, which always carries a non-empty string ``id``.
+    """
+    encoded = quote(
+        f"{TTB_ORIGIN}/#!/?{json.dumps(state, ensure_ascii=False, separators=(',', ':'))}",
+        safe="!~*'()",
+    )
+    data = await request_json(
+        client, "POST", "tiny/shorten", content=encoded, content_type="text/plain"
+    )
+    if not isinstance(data, dict) or not isinstance(data.get("id"), str) or not data["id"]:
+        raise TimetableAPIError.from_status(
+            describe(StatusKind.PAGE_CHANGED, "timetable", "no share id returned by tiny/shorten")
+        )
+    return data
