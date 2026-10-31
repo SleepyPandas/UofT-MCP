@@ -1,7 +1,7 @@
 # Efficient MCP interface and extension guide
 
-The default `compact` profile exposes seven tools, backed by the same university
-operations as the optional 25-tool `legacy` profile. It reduces upfront tool
+The default `compact` profile exposes nine tools, backed by the same university
+operations as the optional 27-tool `legacy` profile. It reduces upfront tool
 definitions, combines independent reads, and selects data before it reaches the
 client. It does not run generated code or add new university actions.
 
@@ -26,7 +26,9 @@ Only one profile is exposed per process. This branch is not a published release;
 `uvx uoft-mcp@latest` does not acquire these changes until a release is published.
 
 The compact tools are `uoft_discover`, `uoft_read`, `uoft_result`, `save_timetable`,
-`uoft_login`, `uoft_auth_status`, and `uoft_forget_session`. The latter four retain
+`uoft_login`, `uoft_auth_status`, `uoft_forget_session`, and the read-only course
+research tools `find_courses` and `course_info`. They are registered directly (never in the
+read batch) in both profiles. The four existing direct tools retain
 their existing contracts and annotations. Sharing, login, and forgetting are never
 dispatched through the read batch. There are no Degree Explorer or ACORN writes.
 
@@ -272,8 +274,8 @@ Measured with the repository's locked environment:
 
 | Metric | Legacy | Compact |
 | --- | ---: | ---: |
-| Exposed tools | 25 | 7 |
-| Serialized tool definitions, bytes | 17,374 | 5,953 |
+| Exposed tools | 27 | 9 |
+| Serialized tool definitions, bytes | 19,952 | 8,531 |
 | Course workflow response bytes, including discovery | 423,120 | 2,416 |
 | Academic workflow response bytes, including discovery | 423,120 | 7,623 |
 | University requests per workflow | 3 | 3 |
@@ -282,7 +284,8 @@ Measured with the repository's locked environment:
 Compact's three calls are discovery, one batch, and one extra snapshot page. Without
 the extra page it takes two cold calls; with known schemas it takes one. Paging adds
 zero university requests. Legacy receives the complete data in its three calls.
-Definition size is approximately 65.7% smaller. These deliberately large fixtures
+Definition size is approximately 57.2% smaller (the two course research tools add
+2,578 bytes to both profiles; compact was 65.7% smaller before them). These deliberately large fixtures
 show response reductions of 99.4% and 98.2%, respectively; small responses or repeated
 discovery may have little benefit or greater overhead.
 
