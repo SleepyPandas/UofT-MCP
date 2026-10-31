@@ -23,8 +23,8 @@
 - A failed or unavailable read no longer discards the other reads in the same `uoft_read`
   batch, or earlier snapshot handles. Private snapshots are now cleared only when sign-in
   state may have changed (signed out, access denied, login, forget, account switch,
-  or an unclassified failure); outages, rate limits, network errors, and changed or
-  rejected requests keep them.
+  an unexpected page or redirect, or an unclassified failure); outages, route errors,
+  rate limits, network errors, and rejected requests keep them.
 - While a visible login is running, `uoft_auth_status` with `refresh=true` now says the
   refresh was skipped (`refresh.skipped`) and which service the login still waits for.
   Reads paused by the login name the same service: "UofT login is in progress (waiting

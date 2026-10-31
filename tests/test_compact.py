@@ -297,6 +297,7 @@ async def test_route_http_500_keeps_the_other_reads_of_a_degree_explorer_batch(t
         (StatusKind.NETWORK, True),
         (StatusKind.SIGNED_OUT, False),
         (StatusKind.ACCESS_DENIED, False),
+        (StatusKind.PAGE_CHANGED, False),
     ],
 )
 async def test_batch_keeps_private_results_unless_authentication_failed(tmp_path, kind, preserved):

@@ -208,13 +208,13 @@ def test_outages_and_non_5xx_are_not_route_failures(status, body):
         (StatusKind.ROUTE_ERROR, False),
         (StatusKind.RATE_LIMITED, False),
         (StatusKind.NETWORK, False),
-        (StatusKind.PAGE_CHANGED, False),
         (StatusKind.REQUEST_REJECTED, False),
         (StatusKind.NOT_CHECKED, True),
         (StatusKind.SIGNED_OUT, True),
         (StatusKind.DUO_PENDING, True),
         (StatusKind.LOGIN_IN_PROGRESS, True),
         (StatusKind.ACCESS_DENIED, True),
+        (StatusKind.PAGE_CHANGED, True),
         (StatusKind.UNKNOWN, True),
     ],
 )
@@ -578,6 +578,7 @@ async def test_route_error_leaves_the_service_connected_and_keeps_snapshots(tmp_
         (StatusKind.NETWORK, False),
         (StatusKind.SIGNED_OUT, True),
         (StatusKind.ACCESS_DENIED, True),
+        (StatusKind.PAGE_CHANGED, True),
     ],
 )
 async def test_read_failure_invalidates_private_data_only_for_authentication(

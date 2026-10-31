@@ -249,7 +249,8 @@ def invalidates_private_data(kind: StatusKind) -> bool:
 
     Outages and rejected requests say nothing about who is signed in, so snapshots
     fetched under the same session stay valid. Anything about authentication, and any
-    status that cannot be classified, discards them.
+    status that cannot be classified, discards them. An unexpected page or redirect is
+    one of those: a moved or unrecognised sign-in page surfaces as ``PAGE_CHANGED``.
     """
     match kind:
         case (
@@ -257,7 +258,6 @@ def invalidates_private_data(kind: StatusKind) -> bool:
             | StatusKind.ROUTE_ERROR
             | StatusKind.RATE_LIMITED
             | StatusKind.NETWORK
-            | StatusKind.PAGE_CHANGED
             | StatusKind.REQUEST_REJECTED
             | StatusKind.CONNECTED
         ):
@@ -268,6 +268,7 @@ def invalidates_private_data(kind: StatusKind) -> bool:
             | StatusKind.DUO_PENDING
             | StatusKind.LOGIN_IN_PROGRESS
             | StatusKind.ACCESS_DENIED
+            | StatusKind.PAGE_CHANGED
             | StatusKind.UNKNOWN
         ):
             return True
