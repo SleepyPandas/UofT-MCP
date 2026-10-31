@@ -53,6 +53,9 @@ class FakeBrowser:
             return ProbeResult("connected", "Verified.")
         return ProbeResult("login_required", "Sign in.")
 
+    async def silent_refresh(self, service):
+        return ProbeResult("login_required", "Sign in.")  # SSO has ended; see test_auth_refresh.
+
     async def snapshot(self):
         state = deepcopy(self.state)
         if not self.browser_open:

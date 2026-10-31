@@ -1,6 +1,7 @@
 """Shared, nonblocking authentication lifecycle for local stdio MCP clients."""
 
 import asyncio
+import time
 from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Any
@@ -43,6 +44,7 @@ class AuthManager:
         login_timeout=300,
         poll_interval=1,
         login_settle_seconds=5.0,
+        silent_refresh_cooldown=60.0,
     ):
         self.on_session_change = lambda: None
         self.store = store if store is not None else SessionStore()
@@ -50,6 +52,8 @@ class AuthManager:
         self.login_timeout = login_timeout
         self.poll_interval = poll_interval
         self.login_settle_seconds = login_settle_seconds
+        self.silent_refresh_cooldown = silent_refresh_cooldown
+        self._silent_blocked_until: dict[str, float] = {}
         self._backend: Any = None
         self._state = deepcopy(EMPTY_STATE)
         self._opened = False
@@ -110,6 +114,43 @@ class AuthManager:
         self._state = snapshot if browser else merge_api_cookies(self._state, snapshot)
         await _store_call(self.store.save, self._state)
 
+    async def _silent_refresh(self, name: str, force: bool = False) -> bool:
+        """Renew a lapsed app session from a still-valid SSO session, never asking for Duo.
+
+        Failed attempts are rate limited so reads and status checks do not repeatedly
+        start a hidden browser once UofT has really ended the session.
+        """
+        if not self._state["cookies"] or self._backend is None:
+            return False
+        if not force and time.monotonic() < self._silent_blocked_until.get(name, 0.0):
+            return False
+        try:
+            result = await self._backend.silent_refresh(SERVICES[name])
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            result = ProbeResult("unavailable", "Could not renew the saved session.")
+        if result.state != "connected":
+            self._silent_blocked_until[name] = time.monotonic() + self.silent_refresh_cooldown
+            return False
+        self._silent_blocked_until.pop(name, None)
+        await self._checkpoint()  # Persist the renewed cookies.
+        return True
+
+    async def _probe_renewing(self, name: str, force: bool = False) -> ProbeResult:
+        result = await self._backend.probe(SERVICES[name])
+        if result.state == "login_required" and await self._silent_refresh(name, force):
+            result = await self._backend.probe(SERVICES[name])
+        return result
+
+    async def _read_renewing(self, name: str, error_type: type, read):
+        try:
+            return await read()
+        except error_type as exc:
+            if exc.state != "login_required" or not await self._silent_refresh(name):
+                raise
+        return await read()
+
     async def login(self, service: ServiceChoice = "both", remember: bool = True) -> dict:
         if service not in {*SERVICES, "both"}:
             raise ValueError("Choose degree_explorer, acorn, or both.")
@@ -131,7 +172,7 @@ class AuthManager:
                 await self._ensure_open(remember)
                 pending = []
                 for name in names:
-                    result = await self._backend.probe(SERVICES[name])
+                    result = await self._probe_renewing(name, force=True)
                     self._record(name, result)
                     await self._checkpoint()
                     if result.state == "login_required":
@@ -212,8 +253,8 @@ class AuthManager:
         async with self._operation:
             try:
                 await self._ensure_open(self._remember)
-                for name, service in SERVICES.items():
-                    self._record(name, await self._backend.probe(service))
+                for name in SERVICES:
+                    self._record(name, await self._probe_renewing(name))
                     await self._checkpoint()
             except (BrowserError, SessionStoreError) as exc:
                 self._login.update(state="failed", message=str(exc))
@@ -242,7 +283,11 @@ class AuthManager:
             try:
                 await self._ensure_open(self._remember)
                 try:
-                    data = await self._backend.read_degree_explorer(endpoint)
+                    data = await self._read_renewing(
+                        "degree_explorer",
+                        DegreeExplorerError,
+                        lambda: self._backend.read_degree_explorer(endpoint),
+                    )
                 except DegreeExplorerError as exc:
                     self._record("degree_explorer", ProbeResult(exc.state, str(exc)))
                     raise
@@ -283,7 +328,9 @@ class AuthManager:
             try:
                 await self._ensure_open(self._remember)
                 try:
-                    data = await self._backend.read_acorn(endpoint)
+                    data = await self._read_renewing(
+                        "acorn", AcornError, lambda: self._backend.read_acorn(endpoint)
+                    )
                 except AcornError as exc:
                     self._record("acorn", ProbeResult(exc.state, str(exc)))
                     raise
