@@ -12,6 +12,7 @@
   instructors, meeting times, enrolment, waitlist, and full/cancelled flags. A card is
   about 3 KB instead of the raw 27 KB.
 - Pure formatter module `uoft_mcp/timetable_builder/format.py` with offline unit tests.
+- - `UOFT_MCP_BROWSER=auto|msedge|chrome|chromium` selects the sign-in browser.
 
 ### Changed
 
@@ -20,6 +21,18 @@
   65.7%); the 50% regression budget in the tests is unchanged.
 - Compact instructions tell models to prefer `find_courses` and `course_info` for course
   questions.
+- Sign in with an installed Microsoft Edge or Google Chrome, falling back to Chromium
+  from `uoft-mcp auth setup`, so most people no longer need a browser download. Edge is
+  tried first on Windows and Chrome first on macOS and Linux. Interactive login and
+  quiet renewal share the same choice. The browser still starts with a temporary,
+  empty profile, never your own.
+- `uoft-mcp doctor` reports which browser sign-in will use and recommends `auth setup`
+  only when none is available.
+- `uoft-mcp auth setup` skips the Chromium download when Edge or Chrome is installed;
+  use `--force` to download anyway.
+- The install scripts no longer suggest downloading Chromium. `UOFT_MCP_WITH_BROWSER=1`
+  still downloads it (by running `auth setup` with `UOFT_MCP_BROWSER=chromium`, which
+  also works with already-published releases).
 
 ## 0.6.0 — 2026-09-20
 

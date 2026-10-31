@@ -10,7 +10,8 @@
 #   UOFT_MCP_SOURCE        Package to install (default: uoft-mcp from PyPI). Use a git URL,
 #                          for example git+https://github.com/SleepyPandas/UofT-MCP, to
 #                          follow the unreleased master branch, or a local checkout path.
-#   UOFT_MCP_WITH_BROWSER  Set to 1 to also download Chromium now (needed only to sign in).
+#   UOFT_MCP_WITH_BROWSER  Set to 1 to also download Chromium (~150 MB). Not needed when
+#                          Google Chrome or Microsoft Edge is installed; sign-in uses them.
 set -eu
 
 SOURCE="${UOFT_MCP_SOURCE:-uoft-mcp}"
@@ -46,7 +47,7 @@ EXE="$BIN_DIR/uoft-mcp"
 
 if [ "${UOFT_MCP_WITH_BROWSER:-0}" = "1" ]; then
     say "Downloading Chromium for UofT sign-in..."
-    "$EXE" auth setup
+    UOFT_MCP_BROWSER=chromium "$EXE" auth setup || die "Chromium download failed (see above)."
 fi
 
 say ""
@@ -59,6 +60,7 @@ case ":$ORIGINAL_PATH:" in
            "(the config above uses the full path, so MCP clients work either way)." ;;
 esac
 say "Next: paste the JSON above into your MCP client, restart it, then ask it to"
-say "\"Connect my UofT account\". Sign-in needs Chromium; download it once with:"
+say "\"Connect my UofT account\". Sign-in opens Google Chrome or Microsoft Edge, so no"
+say "browser download is needed. If the check above found neither, run:"
 say "  ${EXE} auth setup"
 say "Uninstall any time with: uv tool uninstall uoft-mcp"

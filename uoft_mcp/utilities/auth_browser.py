@@ -15,6 +15,7 @@ from uoft_mcp.status import (
     describe,
     looks_like_maintenance,
 )
+from uoft_mcp.utilities.browser_select import BrowserUnavailable, launch_browser
 
 if TYPE_CHECKING:
     from uoft_mcp.acorn.client import AcornEndpoint
@@ -190,7 +191,7 @@ class PlaywrightSession:
         browser = context = None
         try:
             state = await self.snapshot()
-            browser = await self.playwright.chromium.launch(headless=True)
+            browser = await launch_browser(self.playwright, headless=True)
             context = await browser.new_context(**self._context_options(state))
             page = await context.new_page()
             await page.goto(service.app_url, wait_until="domcontentloaded", timeout=30_000)
@@ -261,7 +262,7 @@ class PlaywrightSession:
 
     async def begin_browser(self, state: dict) -> None:
         try:
-            self.browser = await self.playwright.chromium.launch(headless=False)
+            self.browser = await launch_browser(self.playwright, headless=False)
             self.context = await self.browser.new_context(
                 **self._context_options(state), accept_downloads=False
             )
@@ -269,6 +270,8 @@ class PlaywrightSession:
             self.user_agent = await self.page.evaluate("navigator.userAgent")
             await self.api.dispose()
             self.api = self.context.request
+        except BrowserUnavailable as exc:
+            raise BrowserError(str(exc)) from None
         except Exception:
             raise BrowserError(
                 "Could not open the login window. "
