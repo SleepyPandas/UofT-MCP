@@ -12,16 +12,17 @@ From this checkout:
 
 ```powershell
 uv sync --locked
-uv run --locked python -m uoft_mcp auth setup
 uv run --locked python -m uoft_mcp auth login
 ```
 
-The installed `uoft-mcp` command accepts the same `auth` subcommands. Run setup
-again after upgrading Playwright if it requests a different browser build. Desktop
-Linux may also require Playwright's browser system dependencies installed by the
-machine's administrator.
+The installed `uoft-mcp` command accepts the same `auth` subcommands. Sign-in uses
+Microsoft Edge or Google Chrome if either is installed (see
+[Browser used for sign-in](#browser-used-for-sign-in)), so most people need no setup.
+Only if neither is installed, run `uoft-mcp auth setup` once to download Chromium.
+`uoft-mcp doctor` shows which browser will be used. Desktop Linux may also require
+Playwright's browser system dependencies installed by the machine's administrator.
 
-Login opens a dedicated Chromium window only when authentication is required. Type
+Login opens a dedicated browser window only when authentication is required. Type
 your credentials and complete Duo on the official UofT pages. For `both`, Degree
 Explorer connects first, followed by ACORN in the same browser context. This lets
 UofT reuse its SSO session where permitted; an application can still request Duo.
@@ -41,6 +42,28 @@ including these waits. Cancellation and timeout close the managed browser.
 In an MCP client, `uoft_login({"service":"both","remember":true})` returns
 immediately. Poll `uoft_auth_status({})` every few seconds while login is in
 progress. No credentials or MFA codes are accepted as tool arguments.
+
+## Browser used for sign-in
+
+Sign-in tries browsers in this order and uses the first one that starts:
+
+- Windows: Microsoft Edge, then Google Chrome, then Chromium from `auth setup`.
+- macOS and Linux: Google Chrome, then Microsoft Edge, then Chromium from `auth setup`.
+
+If none starts, the error says to install Edge or Chrome, or run `uoft-mcp auth setup`.
+`auth setup` skips the download when Edge or Chrome is already installed; add `--force`
+to download Chromium anyway. Set `UOFT_MCP_BROWSER` to `msedge`, `chrome`, or
+`chromium` to force one browser (no fallback to the others), or `auto` for the default.
+An unrecognized value is an error rather than being ignored.
+
+**Your own browser profile is never used.** Every sign-in and quiet-renewal launch
+starts a fresh browser process with a temporary, empty profile directory (Playwright's
+non-persistent `launch`), and a new isolated context holding only the saved UofT
+cookies. Your personal Edge or Chrome profile, bookmarks, history, extensions, and
+saved passwords are not opened, and its cookies are never read. The temporary profile
+is deleted when the browser closes. Edge or Chrome is used only as the program that
+renders the official UofT pages. `uoft-mcp doctor` finds them by their standard install
+locations without launching anything.
 
 ## Checking and reconnecting
 
@@ -72,7 +95,7 @@ There is no periodic background keepalive or automatic Duo retry loop.
 Sign in once; later calls try to stay signed in without you. When a read, a status
 check, or Login finds that a service reports `login_required` while cookies are
 saved, the MCP first re-validates them through UofT SSO in a hidden (headless)
-Chromium: it opens the service with the saved cookies and browser user agent and
+browser, chosen the same way as for sign-in: it opens the service with the saved cookies and browser user agent and
 lets UofT's normal redirects renew the application session. It never types
 credentials and cannot satisfy Duo. If the service is reachable afterward, the
 renewed cookies are saved to the encrypted store and a read is retried once;
@@ -84,8 +107,8 @@ closing, or an Enhanced application's fresh-MFA rule) requires a new interactive
 Login with Duo. Failed quiet attempts are rate limited to one per service per
 minute for reads and status checks, so an ended session does not start a browser on
 every call; an explicit Login always retries first. Cookies rotated by ordinary
-reads and checks are saved too. Quiet renewal needs the Chromium installed by
-`auth setup` and does not run while a visible login is open.
+reads and checks are saved too. Quiet renewal needs the same browser as sign-in
+and does not run while a visible login is open.
 
 UofT's current [MFA FAQ](https://security.utoronto.ca/services/utormfa/faqs/)
 describes 24-hour remembered-device support for Standard applications and fresh
@@ -140,6 +163,7 @@ Environment overrides (set before starting the MCP):
 | `UOFT_MCP_AUTH_DIR` | Directory for `session.enc` and its lock. Unless `UOFT_MCP_KEY_FILE` is set, a key file then lives beside it. |
 | `UOFT_MCP_KEY_FILE` | Exact path of the fallback key file. |
 | `UOFT_MCP_DISABLE_KEYRING` | Any non-empty value skips the OS keyring and always uses the key file. |
+| `UOFT_MCP_BROWSER` | Browser for sign-in and quiet renewal: `auto` (default), `msedge`, `chrome`, or `chromium` (the download from `auth setup`). A named browser is the only one tried. |
 
 If secure storage is missing or locked, status explicitly reports a memory-only
 session. Such a session works while the MCP runs but cannot be restored after it

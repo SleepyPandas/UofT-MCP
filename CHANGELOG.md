@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Sign in with an installed Microsoft Edge or Google Chrome, falling back to Chromium
+  from `uoft-mcp auth setup`, so most people no longer need a browser download. Edge is
+  tried first on Windows and Chrome first on macOS and Linux. Interactive login and
+  quiet renewal share the same choice. The browser still starts with a temporary,
+  empty profile, never your own.
+- `uoft-mcp doctor` reports which browser sign-in will use and recommends `auth setup`
+  only when none is available.
+- `uoft-mcp auth setup` skips the Chromium download when Edge or Chrome is installed;
+  use `--force` to download anyway.
+- The install scripts no longer suggest downloading Chromium. `UOFT_MCP_WITH_BROWSER=1`
+  still downloads it (by running `auth setup` with `UOFT_MCP_BROWSER=chromium`, which
+  also works with already-published releases).
+
+### Added
+
+- `UOFT_MCP_BROWSER=auto|msedge|chrome|chromium` selects the sign-in browser.
+
 ## 0.6.0 — 2026-09-20
 
 ### Changed

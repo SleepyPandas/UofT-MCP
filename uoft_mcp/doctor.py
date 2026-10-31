@@ -8,6 +8,15 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
+from uoft_mcp.utilities.browser_select import (
+    BrowserUnavailable,
+    browser_label,
+    browser_order,
+    detect_system_browser,
+    no_browser_message,
+    requested_browser,
+)
+
 MIN_PYTHON = (3, 13)
 SERVER_NAME = "uoft"
 
@@ -40,6 +49,25 @@ def chromium_installed() -> bool:
         return False
 
 
+def sign_in_browser_report() -> str:
+    """One line naming the browser UofT sign-in will use, or how to get one.
+
+    Cheap by design: installed Edge/Chrome is found by file location, and the Playwright
+    driver only starts when bundled Chromium is the remaining candidate. Sign-in is
+    optional, so a missing browser is a warning, not a failure.
+    """
+    try:
+        choice = requested_browser()
+    except BrowserUnavailable as exc:
+        return f"[warn] {exc}"
+    system = detect_system_browser(choice)
+    if system is not None:
+        return f"[ok] Sign-in will use {browser_label(system)} (already installed, no download)"
+    if "chromium" in browser_order(choice) and chromium_installed():
+        return "[ok] Sign-in will use the Chromium installed by: uoft-mcp auth setup"
+    return f"[warn] {no_browser_message(choice)}"
+
+
 def run_doctor(command: str | None = None) -> int:
     """Print a short report to stderr and the config JSON to stdout; return an exit code."""
     problems = 0
@@ -59,14 +87,7 @@ def run_doctor(command: str | None = None) -> int:
     problems += not command_ok
     print(f"[{'ok' if command_ok else 'FAIL'}] Server command: {executable}", file=sys.stderr)
 
-    if chromium_installed():
-        print("[ok] Chromium for UofT sign-in is installed", file=sys.stderr)
-    else:
-        print(
-            "[warn] Chromium is not installed (only needed to sign in to ACORN and Degree "
-            "Explorer). Run: uoft-mcp auth setup",
-            file=sys.stderr,
-        )
+    print(sign_in_browser_report(), file=sys.stderr)
 
     print(
         "\nPaste this into your MCP client configuration (Cursor, Claude Desktop, ...):\n",

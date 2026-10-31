@@ -9,7 +9,8 @@
 #   $env:UOFT_MCP_SOURCE        Package to install (default: uoft-mcp from PyPI). Use a git
 #                               URL such as git+https://github.com/SleepyPandas/UofT-MCP to
 #                               follow the unreleased master branch, or a local checkout path.
-#   $env:UOFT_MCP_WITH_BROWSER  Set to 1 to also download Chromium now (needed only to sign in).
+#   $env:UOFT_MCP_WITH_BROWSER  Set to 1 to also download Chromium (~150 MB). Not needed when
+#                               Microsoft Edge or Google Chrome is installed; sign-in uses them.
 #
 # Everything lives in one function so that `irm | iex` never exits or changes your session.
 
@@ -54,7 +55,23 @@ function Install-UofTMcp {
 
     if ($env:UOFT_MCP_WITH_BROWSER -eq '1') {
         Write-Host 'Downloading Chromium for UofT sign-in...'
-        & $exe auth setup
+        # Published releases ignore this variable and always download; newer ones treat it
+        # as an explicit Chromium request instead of skipping when Edge or Chrome exists.
+        $previousBrowser = $env:UOFT_MCP_BROWSER
+        $env:UOFT_MCP_BROWSER = 'chromium'
+        try {
+            & $exe auth setup
+            $setupExit = $LASTEXITCODE
+        } finally {
+            if ($null -eq $previousBrowser) {
+                Remove-Item Env:\UOFT_MCP_BROWSER -ErrorAction SilentlyContinue
+            } else {
+                $env:UOFT_MCP_BROWSER = $previousBrowser
+            }
+        }
+        if ($setupExit -ne 0) {
+            throw "Chromium download failed (exit code $setupExit)."
+        }
     }
 
     Write-Host ''
@@ -69,7 +86,8 @@ function Install-UofTMcp {
         Write-Host '(the config above uses the full path, so MCP clients work either way).'
     }
     Write-Host 'Next: paste the JSON above into your MCP client, restart it, then ask it to'
-    Write-Host '"Connect my UofT account". Sign-in needs Chromium; download it once with:'
+    Write-Host '"Connect my UofT account". Sign-in opens Microsoft Edge or Google Chrome, so no'
+    Write-Host 'browser download is needed. If the check above found neither, run:'
     Write-Host "  $exe auth setup"
     Write-Host 'Uninstall any time with: uv tool uninstall uoft-mcp'
 }
