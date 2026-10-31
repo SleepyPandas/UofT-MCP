@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Fixed
+
+- Connecting both services no longer looks like a login loop. Degree Explorer and ACORN
+  each ask UofT's login server for a fresh sign-in (SAML `ForceAuthn`), so the window
+  shows the UofT login again for ACORN. The login status now says "Degree Explorer is
+  connected. UofT asks for a separate sign-in to ACORN..." for the whole wait instead of
+  a generic waiting message, and `uoft_login` and the docs say to expect two sign-ins.
+- Quiet renewal checks, without a browser, whether the service demands a fresh sign-in
+  and stops at once when it does, instead of starting a hidden browser that can only
+  reach the UofT login page.
+
 ### Added
 
 - `find_courses` and `course_info`: read-only, question-shaped course research tools in

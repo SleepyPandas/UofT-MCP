@@ -1,13 +1,49 @@
 """Quiet renewal: a lapsed app session is refreshed through SSO without Duo or a login window."""
 
+import base64
+import zlib
 from copy import deepcopy
+from urllib.parse import quote
 
 import pytest
 from test_auth import FakeBrowser, Keys, manager
 
 from uoft_mcp.acorn.client import AcornEndpoint, AcornError
 from uoft_mcp.degree_explorer.client import DegreeExplorerEndpoint, DegreeExplorerError
-from uoft_mcp.utilities.auth_browser import SERVICES, PlaywrightSession, ProbeResult
+from uoft_mcp.utilities.auth_browser import (
+    SERVICES,
+    PlaywrightSession,
+    ProbeResult,
+    forces_fresh_sign_in,
+)
+
+IDP_SSO = "https://idpz.utorauth.utoronto.ca/idp/profile/SAML2/Redirect/SSO"
+
+
+def saml_redirect(force: str | None, host_url: str = IDP_SSO) -> str:
+    """An HTTP-Redirect binding URL, encoded the way UofT's service providers send it."""
+    attribute = f' ForceAuthn="{force}"' if force is not None else ""
+    xml = f'<samlp:AuthnRequest{attribute} Version="2.0"></samlp:AuthnRequest>'.encode()
+    deflater = zlib.compressobj(wbits=-15)
+    raw = deflater.compress(xml) + deflater.flush()
+    return f"{host_url}?SAMLRequest={quote(base64.b64encode(raw).decode())}&RelayState=x"
+
+
+@pytest.mark.parametrize(
+    "location,expected",
+    [
+        (saml_redirect("1"), True),
+        (saml_redirect("true"), True),
+        (saml_redirect("false"), False),
+        (saml_redirect(None), False),
+        (saml_redirect("1", "https://evil.example/idp/SSO"), False),
+        (IDP_SSO + "?SAMLRequest=%25%25not-base64", False),
+        (IDP_SSO + "?SAMLRequest=" + quote(base64.b64encode(b"not deflate").decode()), False),
+        (IDP_SSO, False),
+    ],
+)
+def test_forces_fresh_sign_in_reads_only_uoft_saml_requests(location, expected):
+    assert forces_fresh_sign_in(location) is expected
 
 
 class RenewableBrowser(FakeBrowser):
@@ -271,6 +307,56 @@ async def test_real_adapter_stops_at_credential_prompt_without_touching_state():
     assert result.state == "login_required"
     assert session.api is previous and not previous.disposed and not created
     assert chromium.browser_closed
+
+
+class RedirectResponse:
+    def __init__(self, location):
+        self.status, self.headers, self.disposed = 302, {"location": location}, False
+
+    async def dispose(self):
+        self.disposed = True
+
+
+class RedirectingApi(FakeApi):
+    """The app redirects to itself, then to UofT's IdP, like Degree Explorer does live."""
+
+    def __init__(self, sso_location, state=None):
+        super().__init__(state)
+        self.sso_location, self.requested, self.responses = sso_location, [], []
+
+    async def get(self, url, **kwargs):
+        self.requested.append((url, kwargs.get("max_redirects")))
+        target = "/degreeExplorer/" if len(self.requested) == 1 else self.sso_location
+        response = RedirectResponse(target)
+        self.responses.append(response)
+        return response
+
+
+@pytest.mark.anyio
+async def test_forced_sign_in_skips_the_hidden_browser():
+    session, chromium, created = adapter(FakePage("https://degreeexplorer.utoronto.ca/"), FakeApi())
+    previous = session.api = RedirectingApi(saml_redirect("1"), {"cookies": [], "origins": []})
+    result = await session.silent_refresh(SERVICES["degree_explorer"])
+    assert result.state == "login_required"
+    assert chromium.launched == []
+    assert session.api is previous and not created
+    assert previous.requested == [
+        ("https://degreeexplorer.utoronto.ca/", 0),
+        ("https://degreeexplorer.utoronto.ca/degreeExplorer/", 0),
+    ]
+    assert all(response.disposed for response in previous.responses)
+
+
+@pytest.mark.anyio
+async def test_sso_without_forced_sign_in_still_tries_the_hidden_browser():
+    renewed = FakeApi({"cookies": [{"name": "new"}], "origins": []})
+    session, chromium, _ = adapter(
+        FakePage("https://degreeexplorer.utoronto.ca/degreeExplorer/x"), renewed
+    )
+    session.api = RedirectingApi(saml_redirect(None), {"cookies": [], "origins": []})
+    result = await session.silent_refresh(SERVICES["degree_explorer"])
+    assert result.state == "connected"
+    assert chromium.launched == [True]
 
 
 @pytest.mark.anyio

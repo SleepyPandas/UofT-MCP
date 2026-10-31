@@ -24,8 +24,16 @@ Playwright's browser system dependencies installed by the machine's administrato
 
 Login opens a dedicated browser window only when authentication is required. Type
 your credentials and complete Duo on the official UofT pages. For `both`, Degree
-Explorer connects first, followed by ACORN in the same browser context. This lets
-UofT reuse its SSO session where permitted; an application can still request Duo.
+Explorer connects first, followed by ACORN in the same window.
+
+**Each service needs its own sign-in.** Degree Explorer and ACORN each ask UofT's
+login server for a fresh sign-in (SAML `ForceAuthn`), so UofT shows the UTORid,
+password, and Duo pages again for ACORN even though you just signed in to Degree
+Explorer. This is UofT's policy, and the MCP does not try to bypass it. While the
+window waits, `uoft_auth_status` says which service needs the next sign-in. A service
+that is already connected from a saved session is skipped, so you only sign in to the
+ones that need it; pass `degree_explorer` or `acorn` to connect just one.
+
 After each service first verifies successfully, its session is checkpointed and
 the browser stays on that service for five more seconds so redirects and local
 storage have time to finish. Access and the service location are checked again;
@@ -102,9 +110,17 @@ renewed cookies are saved to the encrypted store and a read is retried once;
 otherwise nothing changes and you get the usual reconnect instruction. Reaching
 the credential or Duo page ends the attempt immediately.
 
-Only a real end of the SSO session (for example UofT's remembered-device window
-closing, or an Enhanced application's fresh-MFA rule) requires a new interactive
-Login with Duo. Failed quiet attempts are rate limited to one per service per
+Before starting the hidden browser, the MCP follows the service's own redirects
+(without a browser) to the request it sends UofT's login server. When that request
+demands a fresh sign-in (`ForceAuthn`), which Degree Explorer and ACORN both did when
+last checked, no browser can renew the session, so the attempt ends there in well under
+a second and you get the reconnect instruction. If UofT stops requiring it, the hidden
+browser attempt runs again automatically.
+
+While a service demands a fresh sign-in, any expired application session needs a new
+interactive Login with Duo. Otherwise, only a real end of the SSO session (for example
+UofT's remembered-device window closing, or an Enhanced application's fresh-MFA rule)
+requires one. Failed quiet attempts are rate limited to one per service per
 minute for reads and status checks, so an ended session does not start a browser on
 every call; an explicit Login always retries first. Cookies rotated by ordinary
 reads and checks are saved too. Quiet renewal needs the same browser as sign-in

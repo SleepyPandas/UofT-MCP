@@ -14,6 +14,7 @@ from uoft_mcp.status import (
     describe,
     kind_for_state,
     legacy_state,
+    service_label,
 )
 from uoft_mcp.utilities.auth_browser import (
     SERVICES,
@@ -29,6 +30,21 @@ from uoft_mcp.utilities.auth_store import (
     SessionStoreError,
     merge_api_cookies,
 )
+
+
+def _sign_in_prompt(previous: str | None, name: str) -> str:
+    """What the person should do in the login window for this service.
+
+    UofT's IdP is asked for a fresh sign-in (ForceAuthn) by each service, so connecting
+    a second service always shows the password and Duo pages again.
+    """
+    label = service_label(name)
+    if previous is None:
+        return f"Complete the official UofT login for {label} in the browser window."
+    return (
+        f"{service_label(previous)} is connected. UofT asks for a separate sign-in to "
+        f"{label}: enter your UTORid, password and Duo again in the same browser window."
+    )
 
 
 async def _store_call(function, *args):
@@ -206,12 +222,11 @@ class AuthManager:
                 if pending:
                     async with asyncio.timeout(self.login_timeout):
                         await self._backend.begin_browser(self._state)
-                        for name in pending:
-                            self._login["message"] = (
-                                f"Complete the official UofT login for {name} in the browser."
-                            )
+                        for index, name in enumerate(pending):
+                            prompt = _sign_in_prompt(pending[index - 1] if index else None, name)
+                            self._login["message"] = prompt
                             await self._backend.navigate(SERVICES[name])
-                            await self._wait_for_service(name)
+                            await self._wait_for_service(name, prompt)
                         await self._backend.finish_browser(self._state)
                 count = sum(self._services[name]["state"] == "connected" for name in names)
                 self._login.update(
@@ -248,11 +263,12 @@ class AuthManager:
                 )
                 await self._close_backend()
 
-    async def _wait_for_service(self, name: str) -> None:
+    async def _wait_for_service(self, name: str, prompt: str | None = None) -> None:
         """Verify, allow redirects/storage to settle, then capture the latest session.
 
         The caller's shared login timeout bounds retries and the settling delay.
         Only connected probes permit completion; an error is not proof of login.
+        prompt stays visible in the login status while waiting for the person to sign in.
         """
         service = SERVICES[name]
         while True:
@@ -277,7 +293,9 @@ class AuthManager:
                     if result.state == "connected":
                         await self._checkpoint(browser=True)
                         return
-            self._login["message"] = f"Waiting for verified access to {name} in the browser."
+            self._login["message"] = (
+                prompt or f"Waiting for verified access to {name} in the browser."
+            )
             await asyncio.sleep(self.poll_interval)
 
     async def refresh(self) -> dict:
