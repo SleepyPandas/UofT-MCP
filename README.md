@@ -2,10 +2,10 @@
 
 A small Python MCP server for the public [UofT Timetable Builder](https://ttb.utoronto.ca/)
 API, with read-only Degree Explorer and ACORN access and reusable UofT login.
-It exposes **seven tools by default** over local stdio using the
+It exposes **nine tools by default** over local stdio using the
 [official MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk).
 Discover operations on demand, batch independent reads, and select or page short-lived
-results without repeatedly fetching them. The existing 25-tool interface remains
+results without repeatedly fetching them. The 27-tool interface (the original 25 plus the two course research tools) remains
 available with `--tool-profile legacy`. Both profiles support the same timetable,
 Degree Explorer, ACORN, and authentication capabilities.
 
@@ -179,6 +179,8 @@ for terminal commands, memory-only sessions, expiry, and troubleshooting.
 
 | Tool | Purpose |
 | --- | --- |
+| `find_courses` | Search courses by keyword and get short summaries (code, title, term, campus, credits, description, breadth, whether lectures are full). |
+| `course_info` | Get readable cards for up to eight course codes: requirements, sections, meeting times, enrolment. |
 | `uoft_discover` | Search read operations; request their argument schemas only when needed. |
 | `uoft_read` | Batch up to eight validated reads, with optional selection and bounded previews. |
 | `uoft_result` | Inspect, filter, project, or page an in-memory snapshot without refetching. |
@@ -205,6 +207,35 @@ Snapshots expire after five minutes and are never persisted to disk. Private
 snapshots are invalidated on authentication changes. See [selection and result
 contracts](EFFICIENCY.md#selection) before interpreting partial results.
 
+### Course research tools
+
+`find_courses` and `course_info` are available in both profiles. They are read-only,
+need no login, and return short plain-text JSON instead of the raw Timetable Builder
+objects (one course is about 27 KB raw and roughly 3 KB as a card).
+
+- `find_courses(query, term?, campus?, division?, page=1, page_size=10)` matches the
+  keyword against course codes, titles, and descriptions; each result says which
+  (`matched_in`). `term` is a name such as `"Fall 2026"` or `"Winter 2027"`, or `F`, `S`,
+  `Y`; omit it to search every current session. `campus` is `St. George`, `Mississauga`,
+  or `Scarborough`; `division` is a code such as `ARTSC`. `page_size` is 1-20. Results are
+  one row per course offering (a course taught in two terms appears twice) in code order,
+  with `total`, `page`, and `has_more`.
+- `course_info(course_codes, section_code?)` takes one to eight full codes such as
+  `CSC148H1` and an optional `F`, `S`, or `Y`. Each card has the term, campus, credits,
+  description, prerequisites/corequisites/exclusions as plain text, breadth and
+  distribution lists, and sections grouped by type with instructors, meetings such as
+  `Thu 09:00-11:00 BA 1130`, enrolment (`37/40`), waitlist, delivery mode, and
+  `full`/`cancelled` flags. Unknown codes are listed under `errors`. The Timetable
+  Builder course `id` is kept so `generate_timetable` can use it.
+
+Example questions:
+
+- "Which Fall 2026 courses at St. George mention machine learning?"
+- "What are the prerequisites and exclusions for CSC148H1?"
+- "When do CSC108H1 lectures meet, and are any sections full?"
+- "Compare MAT135H1 and MAT137Y1: credits, breadth, and instructors."
+- "Which Winter 2027 Scarborough courses cover calculus?"
+
 ## Legacy tools and operation names
 
 Run `uv run --locked python -m uoft_mcp --tool-profile legacy` for the original
@@ -219,6 +250,8 @@ tools and cannot be included in a read batch.
 | `get_divisions` | No arguments. List recognized faculty/division codes. |
 | `search_departments` | Required `term` keyword and `divisions` code. |
 | `search_course_titles` | Required `term`, `divisions`, and `sessions` strings. Optional `lower_threshold=50`, `upper_threshold=200`. |
+| `find_courses` | Required `query` keyword; optional `term` (for example `Fall 2026`), `campus`, `division`, `page`, and `page_size` (default 10). Returns short summaries. Not a compact `uoft_read` operation. |
+| `course_info` | Required `course_codes` (1-8 full codes); optional `section_code` of `F`, `S`, or `Y`. Returns readable course cards. Not a compact `uoft_read` operation. |
 | `get_course_details` | Required `course_code`; optional `section_code` of `F`, `S`, or `Y`. The returned course `id` is required by `generate_timetable`. |
 | `search_courses` | Optional code/title, section, description, division, session, campus, delivery, and pagination filters. |
 | `generate_timetable` | Required `plans` array. Each plan has `courses` (`course_id` plus `activity_types`), optional `preference` of `early`, `balanced`, or `late`, and optional `blocked_times`. |
@@ -341,7 +374,7 @@ older run for the same PR. Tests need no Chromium installation or UofT credentia
 The [install workflow](.github/workflows/install.yml) also runs the install scripts, a stdio
 smoke test of the installed command, the tests, and lint on Ubuntu, macOS, and Windows.
 
-The tests run offline. They cover the twenty-five legacy tools and seven compact tools, request mapping, raw JSON
+The tests run offline. They cover the twenty-seven legacy tools and nine compact tools, request mapping, raw JSON
 preservation, validation, HTTP errors, timeouts, connection errors, invalid JSON,
 shared-client cleanup, MCP discovery, and actual stdio subprocesses. Authentication
 tests cover encrypted persistence, restoration, browser lifecycle, expiry, locking,
@@ -375,6 +408,7 @@ uoft_mcp/
 ├── acorn/              # allowlisted ACORN reads and field selection
 ├── utilities/          # shared authentication, browser, and secure session storage
 ├── server.py           # MCP tool registration and application wiring
+├── research.py         # find_courses and course_info (readable course research)
 ├── cli.py              # stdio server and terminal authentication commands
 └── doctor.py           # `uoft-mcp doctor`: install check and client config
 ```

@@ -10,7 +10,7 @@ from uoft_mcp.benchmark import measure
 async def test_efficiency_budgets(workflow):
     legacy = await measure("legacy", workflow)
     compact = await measure("compact", workflow)
-    assert compact["tool_count"] == 7
+    assert compact["tool_count"] == 9
     assert compact["tool_definition_bytes"] <= legacy["tool_definition_bytes"] * 0.5
     assert compact["total_response_bytes"] <= legacy["total_response_bytes"] * 0.25
     assert compact["discovery_response_bytes"] > 0

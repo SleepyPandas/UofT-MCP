@@ -22,6 +22,7 @@ from uoft_mcp.acorn.selection import select_fields, validate_fields
 from uoft_mcp.compact import register_compact
 from uoft_mcp.degree_explorer.client import DegreeExplorerEndpoint, DegreeExplorerError
 from uoft_mcp.operations import Registry
+from uoft_mcp.research import register_research
 from uoft_mcp.results import ResultStore
 from uoft_mcp.status import StatusKind, describe
 from uoft_mcp.timetable_builder.client import TimetableAPIError, create_http_client, request_json
@@ -271,6 +272,7 @@ def create_server(
     server = MCPServer(
         "UofT MCP",
         instructions=(
+            "For course questions prefer find_courses (search) and course_info (details by code). "
             "Use uoft_discover for operation schemas, then uoft_read to batch independent reads. "
             "Use uoft_result to page or filter snapshots without refetching. "
             "Handles expire after five minutes; private handles clear on authentication changes. "
@@ -643,6 +645,7 @@ def create_server(
         result = await ctx.request_context.lifespan_context.auth.forget()
         return json.dumps(result, ensure_ascii=False)
 
+    register_research(server)
     if tool_profile == "compact":
         register_compact(server, registry)
     return server

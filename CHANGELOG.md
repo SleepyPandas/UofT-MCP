@@ -2,8 +2,25 @@
 
 ## Unreleased
 
+### Added
+
+- `find_courses` and `course_info`: read-only, question-shaped course research tools in
+  both the compact and legacy profiles. `find_courses` searches codes, titles, and
+  descriptions by keyword with human term names ("Fall 2026"), campus and division
+  filters, and small pages (default 10). `course_info` returns up to eight compact
+  course cards with plain-text requirements, breadth, and sections grouped by type with
+  instructors, meeting times, enrolment, waitlist, and full/cancelled flags. A card is
+  about 3 KB instead of the raw 27 KB.
+- Pure formatter module `uoft_mcp/timetable_builder/format.py` with offline unit tests.
+- - `UOFT_MCP_BROWSER=auto|msedge|chrome|chromium` selects the sign-in browser.
+
 ### Changed
 
+- Tool counts are now nine (compact) and 27 (legacy). Tool definitions grow by 2,578
+  bytes in both profiles, so compact definitions are 57.2% smaller than legacy (was
+  65.7%); the 50% regression budget in the tests is unchanged.
+- Compact instructions tell models to prefer `find_courses` and `course_info` for course
+  questions.
 - Sign in with an installed Microsoft Edge or Google Chrome, falling back to Chromium
   from `uoft-mcp auth setup`, so most people no longer need a browser download. Edge is
   tried first on Windows and Chrome first on macOS and Linux. Interactive login and
@@ -16,10 +33,6 @@
 - The install scripts no longer suggest downloading Chromium. `UOFT_MCP_WITH_BROWSER=1`
   still downloads it (by running `auth setup` with `UOFT_MCP_BROWSER=chromium`, which
   also works with already-published releases).
-
-### Added
-
-- `UOFT_MCP_BROWSER=auto|msedge|chrome|chromium` selects the sign-in browser.
 
 ## 0.6.0 — 2026-09-20
 

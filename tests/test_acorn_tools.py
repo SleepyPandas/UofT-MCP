@@ -41,7 +41,7 @@ async def test_discovery_routes_and_projection(tmp_path):
     backend.read_acorn = session.read_acorn
     async with Client(create_server(auth_factory=lambda: auth)) as client:
         tools = {t.name: t for t in (await client.list_tools()).tools}
-        assert len(tools) == 25
+        assert len(tools) == 27
         for name, (path, payload, field) in ROUTES.items():
             tool = tools[name]
             assert set(tool.input_schema["properties"]) == {"fields"}

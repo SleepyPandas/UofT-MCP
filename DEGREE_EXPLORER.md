@@ -97,6 +97,6 @@ their names or semantics; this MCP deliberately exposes no such parameter bag.
 Offline tests cover all nine mappings through the MCP SDK, discovery, JSON
 preservation, authentication errors, sanitized failures, response cleanup, saved
 access restoration, cookie rotation, and concurrent login/forget. The existing
-stdio subprocess tests verify both the 25-tool legacy and seven-tool compact profiles. No authenticated
+stdio subprocess tests verify both the 27-tool legacy and nine-tool compact profiles. No authenticated
 live reads were performed for this change; the cell popup's usefulness without
 UI context remains unverified. No Degree Explorer mutation routes are exposed.
