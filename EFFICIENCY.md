@@ -1,7 +1,7 @@
 # Efficient MCP interface and extension guide
 
-The default `compact` profile exposes seven tools, backed by the same university
-operations as the optional 25-tool `legacy` profile. It reduces upfront tool
+The default `compact` profile exposes eight tools, backed by the same university
+operations as the optional 26-tool `legacy` profile. It reduces upfront tool
 definitions, combines independent reads, and selects data before it reaches the
 client. It does not run generated code or add new university actions.
 
@@ -25,8 +25,9 @@ pass those two arguments directly. Restart the MCP process after changing profil
 Only one profile is exposed per process. This branch is not a published release;
 `uvx uoft-mcp@latest` does not acquire these changes until a release is published.
 
-The compact tools are `uoft_discover`, `uoft_read`, `uoft_result`, `save_timetable`,
-`uoft_login`, `uoft_auth_status`, and `uoft_forget_session`. The latter four retain
+The compact tools are `uoft_discover`, `uoft_read`, `uoft_result`, `plan_timetable`,
+`save_timetable`, `uoft_login`, `uoft_auth_status`, and `uoft_forget_session`.
+`plan_timetable` is a direct tool in both profiles (see below); the latter four retain
 their existing contracts and annotations. Sharing, login, and forgetting are never
 dispatched through the read batch. There are no Degree Explorer or ACORN writes.
 
@@ -50,7 +51,7 @@ dynamically registered MCP tools. No client-specific tool-loading extension is n
 `uoft_read` accepts `requests`, an array of one to eight objects containing
 `operation`, `arguments` (default `{}`), and `selection` (optional). Operation names
 are the existing names in the README's legacy table, excluding the four direct
-tools. The registry allowlists handlers; names are never interpreted as URLs or code.
+tools and `plan_timetable`. The registry allowlists handlers; names are never interpreted as URLs or code.
 
 All operation arguments and selection syntax are validated before any request in
 the batch executes. This includes existing cross-field checks such as reversed
@@ -162,6 +163,15 @@ This last example applies only when the fetched payload actually has an array at
 schemas. Pass returned course IDs and activity types to `generate_timetable` via
 `uoft_read`. Sharing the completed timetable remains an explicit `save_timetable` call.
 
+### One-call timetable planning
+
+`plan_timetable` replaces the usual lookup, `generate_timetable`, and hand-built
+`save_timetable` sequence with one call from course codes to a readable schedule and
+share link. It is not dispatched through `uoft_read` because sharing is a write. It adds
+about 1.9 KB (1,921 bytes) of tool definition to each profile. The compact definition
+budget still holds: 7,950 bytes is 41.0% of the legacy 19,371 bytes, below the 50% limit.
+The course lookups use the same four-request public concurrency limit as `uoft_read`.
+
 ### Academic records
 
 Connect through `uoft_login` and check `uoft_auth_status` as before. Discover only
@@ -229,6 +239,8 @@ data; only the profile boundary serializes JSON, avoiding a full encode/decode
 round trip before compact selection. `server.py` wires service handlers,
 authentication, and application lifetime; its registration adapter exposes all
 handlers in legacy mode and only the four direct tools in compact mode.
+`timetable_builder/planner.py` registers `plan_timetable` directly in both profiles; it
+is not in the registry because its default effect is a public share.
 `compact.py` implements discovery and dispatch. `results.py` implements pure selection
 and the transient store. The underlying clients retain their existing allowlisted
 routes, error sanitation, cookie handling, and connection pooling.
@@ -272,8 +284,8 @@ Measured with the repository's locked environment:
 
 | Metric | Legacy | Compact |
 | --- | ---: | ---: |
-| Exposed tools | 25 | 7 |
-| Serialized tool definitions, bytes | 17,374 | 5,953 |
+| Exposed tools | 26 | 8 |
+| Serialized tool definitions, bytes | 19,371 | 7,950 |
 | Course workflow response bytes, including discovery | 423,120 | 2,416 |
 | Academic workflow response bytes, including discovery | 423,120 | 7,623 |
 | University requests per workflow | 3 | 3 |
@@ -282,7 +294,7 @@ Measured with the repository's locked environment:
 Compact's three calls are discovery, one batch, and one extra snapshot page. Without
 the extra page it takes two cold calls; with known schemas it takes one. Paging adds
 zero university requests. Legacy receives the complete data in its three calls.
-Definition size is approximately 65.7% smaller. These deliberately large fixtures
+Definition size is approximately 59.0% smaller. These deliberately large fixtures
 show response reductions of 99.4% and 98.2%, respectively; small responses or repeated
 discovery may have little benefit or greater overhead.
 

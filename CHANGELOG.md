@@ -16,10 +16,23 @@
 - The install scripts no longer suggest downloading Chromium. `UOFT_MCP_WITH_BROWSER=1`
   still downloads it (by running `auth setup` with `UOFT_MCP_BROWSER=chromium`, which
   also works with already-published releases).
+- Tool counts are now 8 (compact) and 26 (legacy). Tool definitions grow by 1,921 bytes
+  per profile; compact definitions remain 59.0% smaller than legacy.
+- Move the `generateYear` request models and share posting into
+  `timetable_builder/generation.py` and `timetable_builder/client.py`; `generate_timetable`
+  and `save_timetable` behave exactly as before.
 
 ### Added
 
 - `UOFT_MCP_BROWSER=auto|msedge|chrome|chromium` selects the sign-in browser.
+- `plan_timetable`, a direct tool in both profiles that turns course codes into a
+  conflict-free schedule in one call: resolves each code and term, derives lecture,
+  tutorial and practical types from open sections, solves per term with the UofT solver
+  (year-long courses are scheduled once and block their winter meetings for the winter
+  solve), reports chosen sections, instructors and a weekly overview, and by default
+  returns a verified `https://ttb.utoronto.ca/#!/?t=` share link (`share=false` skips it).
+  Blocked times the solver cannot honour are returned as warnings; overlaps or missing
+  section types are reported as "no schedule without conflicts".
 
 ## 0.6.0 — 2026-09-20
 
