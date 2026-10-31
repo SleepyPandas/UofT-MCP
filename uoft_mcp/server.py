@@ -507,6 +507,7 @@ def create_server(
         """Start official UofT browser login, returning immediately while you complete Duo.
 
         service is degree_explorer, acorn, or both. Saved sessions are reused when valid.
+        UofT requires a separate sign-in per service, so both means two logins in one window.
         Newly verified browser sessions wait five seconds, recheck access, and save the
         latest session before continuing or closing. Status stays in_progress during the wait.
         remember=False starts a fresh memory-only session without deleting saved sessions.
