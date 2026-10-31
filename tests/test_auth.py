@@ -147,6 +147,53 @@ async def test_nonblocking_login_dedup_and_public_status_while_waiting(tmp_path)
     await auth.close()
 
 
+class SecondSignInBrowser(FakeBrowser):
+    """Degree Explorer finishes at once; ACORN waits for its own forced sign-in."""
+
+    def __init__(self):
+        super().__init__()
+        self.acorn_waiting = asyncio.Event()
+        self.acorn_signed_in = asyncio.Event()
+
+    async def on_service(self, service):
+        if service.name == "acorn" and not self.acorn_signed_in.is_set():
+            self.acorn_waiting.set()
+            return False
+        return await super().on_service(service)
+
+
+@pytest.mark.anyio
+async def test_both_login_says_second_service_needs_its_own_sign_in(tmp_path):
+    browser = SecondSignInBrowser()
+    auth, _ = manager(tmp_path, browser)
+    await auth.login()
+    await browser.acorn_waiting.wait()
+    await asyncio.sleep(0.01)  # Several polls: the waiting loop must keep the prompt visible.
+    message = auth.status()["login"]["message"]
+    assert message.startswith("Degree Explorer is connected.")
+    assert "separate sign-in to ACORN" in message
+    assert auth.status()["services"]["degree_explorer"]["state"] == "connected"
+    browser.acorn_signed_in.set()
+    assert (await auth.wait_for_login())["login"]["state"] == "complete"
+    assert browser.visited == ["degree_explorer", "acorn"]
+    await auth.close()
+
+
+@pytest.mark.anyio
+async def test_single_pending_service_gets_the_plain_prompt(tmp_path):
+    auth, browser = manager(tmp_path)
+    browser.ready.clear()
+    await auth.login("acorn")
+    await browser.opened.wait()
+    await asyncio.sleep(0.01)
+    assert auth.status()["login"]["message"] == (
+        "Complete the official UofT login for ACORN in the browser window."
+    )
+    browser.ready.set()
+    assert (await auth.wait_for_login())["login"]["state"] == "complete"
+    await auth.close()
+
+
 @pytest.mark.anyio
 async def test_partial_success_and_no_browser_for_outage(tmp_path):
     auth, browser = manager(tmp_path)

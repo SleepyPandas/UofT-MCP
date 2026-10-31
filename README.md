@@ -91,7 +91,9 @@ Fully restart the client afterwards.
 
 Timetable tools work immediately with no login. To read ACORN and Degree Explorer, say
 **"Connect my UofT account to Degree Explorer and ACORN."** and finish the official UofT
-login and Duo prompt in the browser window that opens. Sign-in uses Microsoft Edge or Google
+login and Duo prompt in the browser window that opens. UofT asks for a separate sign-in to
+each service, so after Degree Explorer connects the same window shows the UofT login again
+for ACORN; sign in once more there. Sign-in uses Microsoft Edge or Google
 Chrome if you have either (Edge comes with Windows), so there is nothing extra to download.
 It opens a separate, empty browser profile; your own profile and cookies are never used.
 `uoft-mcp doctor` shows which browser it will use. If you have neither, run
@@ -173,7 +175,8 @@ Ask your assistant to **"Connect my UofT account to Degree Explorer and ACORN."*
 Complete the official UofT login and Duo prompts in the dedicated browser window.
 After each service first verifies your login, the browser stays on that service for
 five more seconds, rechecks access, and captures the latest session before moving
-to the next service or closing. Login state is encrypted locally
+to the next service or closing. UofT requires a separate sign-in for each service, so
+expect a second UofT login page for ACORN. Login state is encrypted locally
 and reused after browser closure and MCP restarts, while UofT still accepts it.
 Passwords and Duo codes belong only on the official pages, never in chat or config.
 
