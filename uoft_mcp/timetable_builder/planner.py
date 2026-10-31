@@ -38,7 +38,8 @@ PLAN_TIMETABLE = ToolAnnotations(
     read_only_hint=False, destructive_hint=False, idempotent_hint=False
 )
 
-_CODE_PATTERN = re.compile(r"([A-Z]{3}\d{3}[HY]\d)(?:[-_:\s]*([FSY]))?")
+# UTSC codes carry a letter in the fourth position (CSCA08H3); other campuses use digits.
+_CODE_PATTERN = re.compile(r"([A-Z]{3}[A-Z\d]\d{2}[HY]\d)(?:[-_:\s]*([FSY]))?")
 _FALL_WINTER_SESSION = re.compile(r"\d{4}[91]")
 _ACTIVITY_ORDER = ("Lecture", "Tutorial", "Practical")
 _DAY_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
