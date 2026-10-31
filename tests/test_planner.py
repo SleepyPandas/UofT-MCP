@@ -228,6 +228,15 @@ def test_parse_course_requests():
     assert parse_course_requests(["CSC148H1"], None) == [CourseRequest("CSC148H1", None)]
 
 
+def test_parse_course_requests_accepts_every_campus():
+    parsed = parse_course_requests(["CSC108H5", "cscA08h3-f", "MATA31H3"], None)
+    assert parsed == [
+        CourseRequest("CSC108H5", None),
+        CourseRequest("CSCA08H3", "F"),
+        CourseRequest("MATA31H3", None),
+    ]
+
+
 @pytest.mark.parametrize(
     "codes,message",
     [
