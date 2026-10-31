@@ -72,6 +72,13 @@
   state may have changed (signed out, access denied, login, forget, account switch,
   or an unclassified failure); outages, rate limits, network errors, and changed or
   rejected requests keep them.
+- While a visible login is running, `uoft_auth_status` with `refresh=true` now says the
+  refresh was skipped (`refresh.skipped`) and which service the login still waits for.
+  Reads paused by the login name the same service: "UofT login is in progress (waiting
+  for ACORN; reads are paused until it finishes)". Reads stay paused so a login can never
+  mix sessions.
+- The idle login message is now "No login in progress." instead of "Use uoft_login to
+  connect.", which was wrong after a saved session had been restored.
 
 ## 0.6.0 — 2026-09-20
 

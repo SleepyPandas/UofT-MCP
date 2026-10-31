@@ -130,6 +130,16 @@ def test_route_error_blames_the_request_not_the_service():
     assert "down" not in message
 
 
+def test_login_in_progress_can_name_what_it_waits_for():
+    assert describe(StatusKind.LOGIN_IN_PROGRESS, "acorn").message == (
+        "UofT login is in progress. Finish it in the browser window, then check uoft_auth_status."
+    )
+    detail = "waiting for ACORN"
+    assert describe(StatusKind.LOGIN_IN_PROGRESS, "acorn", detail).summary == (
+        "UofT login is in progress (waiting for ACORN)."
+    )
+
+
 def test_access_denied_advice_depends_on_whether_login_applies():
     private = describe(StatusKind.ACCESS_DENIED, "acorn", "HTTP 403")
     public = describe(StatusKind.ACCESS_DENIED, "timetable", "HTTP 403")
@@ -584,5 +594,52 @@ async def test_read_failure_invalidates_private_data_only_for_authentication(
             await auth.read_acorn(AcornEndpoint.DASHBOARD_COURSES)
         assert bool(changes) is invalidates
         assert auth.status()["services"]["acorn"]["kind"] == kind.value
+    finally:
+        await auth.close()
+
+
+@pytest.mark.anyio
+async def test_refresh_during_login_says_it_was_skipped_and_what_is_awaited(tmp_path):
+    auth, browser = manager(tmp_path)
+    browser.ready.clear()
+    await auth.login("acorn")
+    await browser.opened.wait()
+    try:
+        status = await auth.refresh()
+        assert status["login"]["state"] == "in_progress"
+        assert status["refresh"]["skipped"] is True
+        assert "waiting for ACORN" in status["refresh"]["message"]
+        assert "Degree Explorer" not in status["refresh"]["message"]
+    finally:
+        await auth.close()
+
+
+@pytest.mark.anyio
+async def test_reads_during_login_name_the_service_still_awaited(tmp_path):
+    auth, browser = manager(tmp_path)
+    browser.ready.clear()
+    await auth.login()
+    await browser.opened.wait()
+    try:
+        with pytest.raises(DegreeExplorerError) as error:
+            await auth.read_degree_explorer(DegreeExplorerEndpoint.PLANNER)
+        assert error.value.kind is StatusKind.LOGIN_IN_PROGRESS
+        assert "waiting for Degree Explorer and ACORN" in str(error.value)
+        assert "Finish it in the browser window" in str(error.value)
+    finally:
+        await auth.close()
+
+
+@pytest.mark.anyio
+async def test_idle_login_message_stays_true_after_a_saved_session_is_restored(tmp_path):
+    auth, _ = manager(tmp_path)
+    try:
+        assert "uoft_login" not in auth.status()["login"]["message"]
+        await auth.login()
+        await auth.wait_for_login()
+        await auth.refresh()
+        status = auth.status()
+        assert all(value["state"] == "connected" for value in status["services"].values())
+        assert "uoft_login" not in status["login"]["message"]
     finally:
         await auth.close()

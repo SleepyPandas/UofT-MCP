@@ -168,7 +168,7 @@ def describe(kind: StatusKind, service: str, detail: str | None = None) -> Statu
             summary = f"Duo sign-in pending or failed{target}."
             action = "Run uoft_login and approve the Duo prompt."
         case StatusKind.LOGIN_IN_PROGRESS:
-            summary = "UofT login is in progress."
+            summary = f"UofT login is in progress{extra}."
             action = "Finish it in the browser window, then check uoft_auth_status."
         case StatusKind.ACCESS_DENIED:
             summary = f"{name} denied access{extra}."

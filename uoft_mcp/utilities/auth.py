@@ -92,7 +92,7 @@ class AuthManager:
             }
             for name in SERVICES
         }
-        self._login = {"state": "idle", "message": "Use uoft_login to connect.", "services": []}
+        self._login = {"state": "idle", "message": "No login in progress.", "services": []}
 
     def _plain_services(self) -> dict:
         """Add each service's status kind and next step to its existing fields."""
@@ -296,9 +296,30 @@ class AuthManager:
             )
             await asyncio.sleep(self.poll_interval)
 
+    def _login_wait_detail(self) -> str | None:
+        """Name what a visible login still waits for; reads pause until it ends."""
+        waiting = [
+            service_label(name)
+            for name in self._login["services"]
+            if self._services[name]["state"] != "connected"
+        ]
+        if not waiting:
+            return None
+        return f"waiting for {' and '.join(waiting)}; reads are paused until it finishes"
+
     async def refresh(self) -> dict:
         if self._task is not None and not self._task.done():
-            return self.status()
+            status = self.status()
+            detail = self._login_wait_detail()
+            status["refresh"] = {
+                "skipped": True,
+                "message": (
+                    "Refresh skipped because a UofT login is in progress"
+                    + (f", {detail}" if detail else "")
+                    + ". These are the last known statuses."
+                ),
+            }
+            return status
         async with self._operation:
             try:
                 await self._ensure_open(self._remember)
@@ -325,7 +346,7 @@ class AuthManager:
             raise DegreeExplorerError("Unsupported Degree Explorer endpoint.")
         if self._task is not None and not self._task.done():
             raise DegreeExplorerError.from_status(
-                describe(StatusKind.LOGIN_IN_PROGRESS, "degree_explorer")
+                describe(StatusKind.LOGIN_IN_PROGRESS, "degree_explorer", self._login_wait_detail())
             )
         async with self._operation:
             try:
@@ -370,7 +391,9 @@ class AuthManager:
         if not isinstance(endpoint, AcornEndpoint):
             raise AcornError("Unsupported ACORN endpoint.")
         if self._task is not None and not self._task.done():
-            raise AcornError.from_status(describe(StatusKind.LOGIN_IN_PROGRESS, "acorn"))
+            raise AcornError.from_status(
+                describe(StatusKind.LOGIN_IN_PROGRESS, "acorn", self._login_wait_detail())
+            )
         async with self._operation:
             try:
                 await self._ensure_open(self._remember)
