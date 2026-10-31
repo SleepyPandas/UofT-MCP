@@ -87,18 +87,17 @@ Fully restart the client afterwards.
 
 ### 3. Sign in the first time (optional)
 
-Timetable tools work immediately with no login. To read ACORN and Degree Explorer, download
-the sign-in browser once, then ask your assistant to connect:
+Timetable tools work immediately with no login. To read ACORN and Degree Explorer, say
+**"Connect my UofT account to Degree Explorer and ACORN."** and finish the official UofT
+login and Duo prompt in the browser window that opens. Sign-in uses Microsoft Edge or Google
+Chrome if you have either (Edge comes with Windows), so there is nothing extra to download.
+It opens a separate, empty browser profile; your own profile and cookies are never used.
+`uoft-mcp doctor` shows which browser it will use. If you have neither, run
+`uoft-mcp auth setup` once to download Chromium.
 
-```sh
-uoft-mcp auth setup
-```
-
-Then say **"Connect my UofT account to Degree Explorer and ACORN."** and finish the official
-UofT login and Duo prompt in the Chromium window that opens. Passwords and Duo codes belong
-only on UofT's pages, never in chat or config. Your login is encrypted locally and reused
-across restarts; see [AUTHENTICATION.md](AUTHENTICATION.md) for details. Setting
-`UOFT_MCP_WITH_BROWSER=1` when running the installer downloads the browser for you.
+Passwords and Duo codes belong only on UofT's pages, never in chat or config. Your login is
+encrypted locally and reused across restarts; see [AUTHENTICATION.md](AUTHENTICATION.md)
+for details, including `UOFT_MCP_BROWSER` to pick a browser.
 
 ### Troubleshooting
 
@@ -109,9 +108,9 @@ across restarts; see [AUTHENTICATION.md](AUTHENTICATION.md) for details. Setting
   use double backslashes in JSON paths.
 - **First start or install is slow or times out.** uv is downloading Python and dependencies
   once. Re-run the installer (it sets `UV_HTTP_TIMEOUT=300`) or retry on a better connection.
-- **Sign-in says Chromium is missing, or Linux cannot open a browser.** Run
-  `uoft-mcp auth setup`. Desktop Linux may also need Playwright's system libraries installed by
-  an administrator; see [AUTHENTICATION.md](AUTHENTICATION.md).
+- **Sign-in says no browser is available, or Linux cannot open a browser.** Install Microsoft
+  Edge or Google Chrome, or run `uoft-mcp auth setup`. Desktop Linux may also need Playwright's
+  system libraries installed by an administrator; see [AUTHENTICATION.md](AUTHENTICATION.md).
 
 Prefer not to install anything permanently? Run it on demand with `uvx uoft-mcp@latest` as the
 client command (`"command": "uvx", "args": ["uoft-mcp@latest"]`). To pin a release use
@@ -143,7 +142,8 @@ Stdout carries protocol messages only, and logging goes to stderr.
 ## Connect Degree Explorer and ACORN
 
 Degree Explorer tools reuse your saved UofT session to read academic records and
-existing plans. To try them from this checkout, install Chromium once:
+existing plans. Sign-in uses an installed Microsoft Edge or Google Chrome; if you have
+neither, download Chromium once from this checkout:
 
 ```powershell
 uv run --locked python -m uoft_mcp auth setup
@@ -164,7 +164,7 @@ branch changes until a release):
 ```
 
 Ask your assistant to **"Connect my UofT account to Degree Explorer and ACORN."**
-Complete the official UofT login and Duo prompts in the dedicated Chromium window.
+Complete the official UofT login and Duo prompts in the dedicated browser window.
 After each service first verifies your login, the browser stays on that service for
 five more seconds, rechecks access, and captures the latest session before moving
 to the next service or closing. Login state is encrypted locally
