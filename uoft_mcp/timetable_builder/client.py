@@ -4,6 +4,8 @@ from typing import Any
 
 import httpx
 
+from uoft_mcp.status import ServiceReadError, StatusKind, classify_exception, describe
+
 BASE_URL = "https://api.easi.utoronto.ca/ttb/"
 TIMEOUT_SECONDS = 30.0
 HEADERS = {
@@ -14,7 +16,7 @@ HEADERS = {
 }
 
 
-class TimetableAPIError(Exception):
+class TimetableAPIError(ServiceReadError):
     """An upstream failure that can be explained to an MCP client."""
 
 
@@ -57,18 +59,14 @@ async def request_json(
             headers=headers,
         )
         response.raise_for_status()
-    except httpx.TimeoutException as exc:
-        raise TimetableAPIError(
-            f"UofT timetable API timed out after {TIMEOUT_SECONDS:g} seconds at {path}."
+    except (httpx.TimeoutException, httpx.HTTPStatusError, httpx.RequestError) as exc:
+        raise TimetableAPIError.from_status(
+            classify_exception(exc, "timetable", where=path, timeout_seconds=TIMEOUT_SECONDS)
         ) from exc
-    except httpx.HTTPStatusError as exc:
-        raise TimetableAPIError(
-            f"UofT timetable API returned HTTP {exc.response.status_code} at {path}."
-        ) from exc
-    except httpx.RequestError as exc:
-        raise TimetableAPIError(f"Could not reach the UofT timetable API at {path}.") from exc
 
     try:
         return response.json()
     except ValueError as exc:
-        raise TimetableAPIError(f"UofT timetable API returned invalid JSON at {path}.") from exc
+        raise TimetableAPIError.from_status(
+            describe(StatusKind.PAGE_CHANGED, "timetable", f"invalid JSON at {path}")
+        ) from exc

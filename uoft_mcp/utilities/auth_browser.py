@@ -8,6 +8,14 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urljoin, urlsplit
 
+from uoft_mcp.status import (
+    StatusKind,
+    classify_exception,
+    classify_http_status,
+    describe,
+    looks_like_maintenance,
+)
+
 if TYPE_CHECKING:
     from uoft_mcp.acorn.client import AcornEndpoint
     from uoft_mcp.degree_explorer.client import DegreeExplorerEndpoint
@@ -55,6 +63,12 @@ class BrowserClosed(BrowserError):
 class ProbeResult:
     state: str
     message: str
+    kind: StatusKind | None = None
+
+
+def _probe(kind: StatusKind, service: Service, detail: str | None = None) -> ProbeResult:
+    status = describe(kind, service.name, detail)
+    return ProbeResult(status.state, status.message, status.kind)
 
 
 def classify_response(service: Service, status: int, headers: dict, body: str) -> ProbeResult:
@@ -71,7 +85,7 @@ def classify_and_parse_response(
     The result state distinguishes successful JSON null from a failed response.
     Authentication probes discard the payload through classify_response.
     """
-    login = ProbeResult("login_required", "Sign in with uoft_login to connect this service.")
+    login = _probe(StatusKind.SIGNED_OUT, service)
     if status == 401:
         return login, None
     if 300 <= status < 400:
@@ -83,37 +97,31 @@ def classify_and_parse_response(
             or host.endswith(".duosecurity.com")
         ):
             return login, None
-        return ProbeResult(
-            "unexpected_response", "The service returned an unexpected redirect."
-        ), None
+        return _probe(StatusKind.PAGE_CHANGED, service, "unexpected redirect"), None
     lower = body.lower()
     if "json" not in headers.get("content-type", "").lower() and any(
         marker in lower
         for marker in ("j_password", "samlrequest", "samlresponse", "utorid", "duosecurity.com")
     ):
         return login, None
-    if status == 403:
-        return ProbeResult(
-            "access_denied", "The service denied access; your session was retained."
-        ), None
-    if status == 429 or status >= 500:
-        return (
-            ProbeResult("unavailable", "The service is temporarily unavailable; try again later."),
-            None,
-        )
-    if status != 200 or "json" not in headers.get("content-type", "").lower():
-        return ProbeResult(
-            "unexpected_response", "The service did not return the expected JSON."
-        ), None
+    is_json = "json" in headers.get("content-type", "").lower()
+    failure = classify_http_status(service.name, status)
+    # Access errors and outages win over body sniffing; other 4xx only mean the route moved.
+    if failure is not None and failure.kind is not StatusKind.PAGE_CHANGED:
+        return ProbeResult(failure.state, failure.message, failure.kind), None
+    if not is_json and looks_like_maintenance(body):
+        return _probe(StatusKind.SERVICE_DOWN, service, "maintenance page"), None
+    if failure is not None:
+        return ProbeResult(failure.state, failure.message, failure.kind), None
+    if status != 200 or not is_json:
+        return _probe(StatusKind.PAGE_CHANGED, service, "unexpected response"), None
     try:
         payload = json.loads(body)
     except (ValueError, RecursionError):
-        return ProbeResult("unexpected_response", "The service returned malformed JSON."), None
+        return _probe(StatusKind.PAGE_CHANGED, service, "malformed JSON"), None
     if not isinstance(payload, service.json_type):
-        return ProbeResult(
-            "unexpected_response", "The service returned an unexpected JSON shape."
-        ), None
-    return ProbeResult("connected", "Connection verified."), payload
+        return _probe(StatusKind.PAGE_CHANGED, service, "unexpected JSON shape"), None
+    return _probe(StatusKind.CONNECTED, service), payload
 
 
 class PlaywrightSession:
@@ -159,8 +167,9 @@ class PlaywrightSession:
             return classify_response(
                 service, response.status, response.headers, await response.text()
             )
-        except Exception:
-            return ProbeResult("unavailable", "Could not reach the service; try again later.")
+        except Exception as exc:
+            status = classify_exception(exc, service.name, timeout_seconds=15)
+            return ProbeResult(status.state, status.message, status.kind)
         finally:
             if response is not None:
                 try:

@@ -3,9 +3,11 @@
 from enum import StrEnum
 from typing import Any
 
+from uoft_mcp.status import ServiceReadError, classify_exception
 from uoft_mcp.utilities.auth_browser import Service, classify_and_parse_response
 
 BASE_URL = "https://degreeexplorer.utoronto.ca/degreeExplorer/rest"
+TIMEOUT_MS = 30_000
 
 
 class DegreeExplorerEndpoint(StrEnum):
@@ -20,12 +22,8 @@ class DegreeExplorerEndpoint(StrEnum):
     CELL_DETAILS = "/dxPlanner/getCellDetails"
 
 
-class DegreeExplorerError(Exception):
+class DegreeExplorerError(ServiceReadError):
     """Sanitized failure with an authentication status, never an upstream body."""
-
-    def __init__(self, message: str, state: str = "unexpected_response"):
-        super().__init__(message)
-        self.state = state
 
 
 async def request_degree_explorer(api: Any, endpoint: DegreeExplorerEndpoint) -> Any:
@@ -41,7 +39,7 @@ async def request_degree_explorer(api: Any, endpoint: DegreeExplorerEndpoint) ->
         response = await api.get(
             BASE_URL + endpoint,
             headers={"Accept": "application/json"},
-            timeout=30_000,
+            timeout=TIMEOUT_MS,
             max_redirects=0,
         )
         body = await response.text()
@@ -51,18 +49,13 @@ async def request_degree_explorer(api: Any, endpoint: DegreeExplorerEndpoint) ->
             service, response.status, response.headers, body
         )
         if result.state != "connected":
-            raise DegreeExplorerError(
-                f"Degree Explorer {endpoint} (HTTP {response.status}): {result.message}",
-                result.state,
-            )
+            raise DegreeExplorerError(result.message, result.state, result.kind)
         return payload
     except DegreeExplorerError:
         raise
-    except Exception:
-        raise DegreeExplorerError(
-            f"Could not read Degree Explorer {endpoint}; request failed or timed out "
-            "(30-second timeout). Try again later.",
-            "unavailable",
+    except Exception as exc:
+        raise DegreeExplorerError.from_status(
+            classify_exception(exc, "degree_explorer", timeout_seconds=TIMEOUT_MS / 1000)
         ) from None
     finally:
         if response is not None:

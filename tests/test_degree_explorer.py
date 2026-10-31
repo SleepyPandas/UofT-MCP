@@ -8,6 +8,7 @@ import pytest
 from test_auth import Keys, manager
 
 from uoft_mcp.degree_explorer.client import BASE_URL, DegreeExplorerEndpoint, DegreeExplorerError
+from uoft_mcp.status import StatusKind
 from uoft_mcp.utilities.auth_browser import PlaywrightSession
 
 
@@ -57,21 +58,51 @@ async def test_read_parses_large_payload_only_once():
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    "status,headers,body,state",
+    "status,headers,body,state,kind",
     [
-        (401, {}, "SECRET", "login_required"),
-        (302, {"location": "https://idpz.utorauth.utoronto.ca/?SECRET"}, "", "login_required"),
-        (302, {"location": "https://evil.test/?SECRET"}, "", "unexpected_response"),
-        (200, {"content-type": "text/html"}, "j_password SECRET", "login_required"),
-        (403, {}, "SECRET", "access_denied"),
-        (429, {}, "SECRET", "unavailable"),
-        (503, {}, "SECRET", "unavailable"),
-        (404, {}, "SECRET", "unexpected_response"),
-        (200, {"content-type": "text/html"}, "SECRET", "unexpected_response"),
-        (200, {"content-type": "application/json"}, "SECRET", "unexpected_response"),
+        (401, {}, "SECRET", "login_required", StatusKind.SIGNED_OUT),
+        (
+            302,
+            {"location": "https://idpz.utorauth.utoronto.ca/?SECRET"},
+            "",
+            "login_required",
+            StatusKind.SIGNED_OUT,
+        ),
+        (
+            302,
+            {"location": "https://evil.test/?SECRET"},
+            "",
+            "unexpected_response",
+            StatusKind.PAGE_CHANGED,
+        ),
+        (
+            200,
+            {"content-type": "text/html"},
+            "j_password SECRET",
+            "login_required",
+            StatusKind.SIGNED_OUT,
+        ),
+        (403, {}, "SECRET", "access_denied", StatusKind.ACCESS_DENIED),
+        (429, {}, "SECRET", "unavailable", StatusKind.RATE_LIMITED),
+        (503, {}, "SECRET", "unavailable", StatusKind.SERVICE_DOWN),
+        (404, {}, "SECRET", "unexpected_response", StatusKind.PAGE_CHANGED),
+        (
+            200,
+            {"content-type": "text/html"},
+            "SECRET",
+            "unexpected_response",
+            StatusKind.PAGE_CHANGED,
+        ),
+        (
+            200,
+            {"content-type": "application/json"},
+            "SECRET",
+            "unexpected_response",
+            StatusKind.PAGE_CHANGED,
+        ),
     ],
 )
-async def test_failures_are_sanitized_and_disposed(status, headers, body, state):
+async def test_failures_are_sanitized_and_disposed(status, headers, body, state, kind):
     session = PlaywrightSession()
     response = Mock(
         status=status, headers=headers, text=AsyncMock(return_value=body), dispose=AsyncMock()
@@ -81,7 +112,8 @@ async def test_failures_are_sanitized_and_disposed(status, headers, body, state)
         await session.read_degree_explorer(DegreeExplorerEndpoint.ACADEMIC_HISTORY)
     assert error.value.state == state
     assert "SECRET" not in str(error.value)
-    assert "/dxStudent/getAcademicHistory" in str(error.value)
+    assert error.value.kind is kind
+    assert "Degree Explorer" in str(error.value)
     response.dispose.assert_awaited_once()
     assert session.api.get.await_count == 1
 
@@ -90,7 +122,7 @@ async def test_failures_are_sanitized_and_disposed(status, headers, body, state)
 async def test_transport_failure_and_arbitrary_route():
     session = PlaywrightSession()
     session.api = Mock(get=AsyncMock(side_effect=RuntimeError("SECRET")))
-    with pytest.raises(DegreeExplorerError, match="failed or timed out") as error:
+    with pytest.raises(DegreeExplorerError, match="Something went wrong") as error:
         await session.read_degree_explorer(DegreeExplorerEndpoint.PLANNER)
     assert "SECRET" not in str(error.value)
     session.api.get.reset_mock()

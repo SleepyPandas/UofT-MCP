@@ -8,6 +8,7 @@ import pytest
 from test_auth import Keys, manager
 
 from uoft_mcp.acorn.client import BASE_URL, AcornEndpoint, AcornError
+from uoft_mcp.status import StatusKind
 from uoft_mcp.utilities.auth_browser import PlaywrightSession
 
 
@@ -56,21 +57,51 @@ async def test_read_parses_large_payload_only_once():
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    "status,headers,body,state",
+    "status,headers,body,state,kind",
     [
-        (401, {}, "SECRET", "login_required"),
-        (302, {"location": "https://idpz.utorauth.utoronto.ca/?SECRET"}, "", "login_required"),
-        (302, {"location": "https://evil.test/?SECRET"}, "", "unexpected_response"),
-        (200, {"content-type": "text/html"}, "j_password SECRET", "login_required"),
-        (403, {}, "SECRET", "access_denied"),
-        (429, {}, "SECRET", "unavailable"),
-        (503, {}, "SECRET", "unavailable"),
-        (404, {}, "SECRET", "unexpected_response"),
-        (200, {"content-type": "text/html"}, "SECRET", "unexpected_response"),
-        (200, {"content-type": "application/json"}, "SECRET", "unexpected_response"),
+        (401, {}, "SECRET", "login_required", StatusKind.SIGNED_OUT),
+        (
+            302,
+            {"location": "https://idpz.utorauth.utoronto.ca/?SECRET"},
+            "",
+            "login_required",
+            StatusKind.SIGNED_OUT,
+        ),
+        (
+            302,
+            {"location": "https://evil.test/?SECRET"},
+            "",
+            "unexpected_response",
+            StatusKind.PAGE_CHANGED,
+        ),
+        (
+            200,
+            {"content-type": "text/html"},
+            "j_password SECRET",
+            "login_required",
+            StatusKind.SIGNED_OUT,
+        ),
+        (403, {}, "SECRET", "access_denied", StatusKind.ACCESS_DENIED),
+        (429, {}, "SECRET", "unavailable", StatusKind.RATE_LIMITED),
+        (503, {}, "SECRET", "unavailable", StatusKind.SERVICE_DOWN),
+        (404, {}, "SECRET", "unexpected_response", StatusKind.PAGE_CHANGED),
+        (
+            200,
+            {"content-type": "text/html"},
+            "SECRET",
+            "unexpected_response",
+            StatusKind.PAGE_CHANGED,
+        ),
+        (
+            200,
+            {"content-type": "application/json"},
+            "SECRET",
+            "unexpected_response",
+            StatusKind.PAGE_CHANGED,
+        ),
     ],
 )
-async def test_failures_are_sanitized_and_disposed(status, headers, body, state):
+async def test_failures_are_sanitized_and_disposed(status, headers, body, state, kind):
     session = PlaywrightSession()
     response = Mock(
         status=status, headers=headers, text=AsyncMock(return_value=body), dispose=AsyncMock()
@@ -80,7 +111,8 @@ async def test_failures_are_sanitized_and_disposed(status, headers, body, state)
         await session.read_acorn(AcornEndpoint.STUDENT_REGISTRATION_INFO)
     assert error.value.state == state
     assert "SECRET" not in str(error.value)
-    assert "/profile/studentRegistrationInfo" in str(error.value)
+    assert error.value.kind is kind
+    assert "ACORN" in str(error.value)
     response.dispose.assert_awaited_once()
     assert session.api.get.await_count == 1
 
@@ -89,7 +121,7 @@ async def test_failures_are_sanitized_and_disposed(status, headers, body, state)
 async def test_transport_failure_and_arbitrary_route():
     session = PlaywrightSession()
     session.api = Mock(get=AsyncMock(side_effect=RuntimeError("SECRET")))
-    with pytest.raises(AcornError, match="failed or timed out") as error:
+    with pytest.raises(AcornError, match="Something went wrong") as error:
         await session.read_acorn(AcornEndpoint.DASHBOARD_COURSES)
     assert "SECRET" not in str(error.value)
     session.api.get.reset_mock()
@@ -224,7 +256,7 @@ async def test_unexpected_json_root_is_rejected(endpoint, payload):
 async def test_timeout_is_sanitized():
     session = PlaywrightSession()
     session.api = Mock(get=AsyncMock(side_effect=TimeoutError("SECRET")))
-    with pytest.raises(AcornError, match="30-second timeout") as error:
+    with pytest.raises(AcornError, match="timed out after 30 seconds") as error:
         await session.read_acorn(AcornEndpoint.DASHBOARD_COURSES)
     assert error.value.state == "unavailable"
     assert "SECRET" not in str(error.value)
