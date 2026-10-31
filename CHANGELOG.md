@@ -25,9 +25,14 @@
 ### Changed
 
 - Tool counts are now ten (compact) and 28 (legacy). The course research tools and
-  `plan_timetable` add 4,499 bytes of tool definitions to both profiles, so compact
-  definitions are 52.2% smaller than legacy (was 65.7%); the 50% regression budget in
-  the tests is unchanged.
+  `plan_timetable` add about 4.4 KB of tool definitions to both profiles (4,425 bytes
+  by the benchmark's serializer), so compact definitions are 52.2% smaller than legacy
+  (was 65.7%); the 50% regression budget in the tests is unchanged.
+- `uoft_discover` ranks operations whose name or service matches the query above ones that
+  only mention it in their description, so `acorn` lists the ACORN operations before
+  `generate_timetable`. When the limit hides matches, the result adds `more` and a
+  `hint` saying how many remain and how to see them (raise `limit` up to 25, set
+  `service`, or narrow the query). Docs show service-filtered discovery.
 - Compact instructions tell models to prefer `find_courses` and `course_info` for course
   questions.
 - Sign in with an installed Microsoft Edge or Google Chrome, falling back to Chromium
