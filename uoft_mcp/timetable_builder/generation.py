@@ -38,7 +38,7 @@ class GenerationPlan(BaseModel):
     blocked_times: list[BlockedTime] | None = None
 
 
-def _fitness_option(preference: TimePreference) -> str:
+def fitness_option(preference: TimePreference) -> str:
     """Map the public preference names to the solver's fitnessFunctionOption values."""
     match preference:
         case "early":
@@ -80,7 +80,7 @@ def millis_of_day(clock: str) -> int:
     return (hours * 3600 + minutes * 60) * 1000
 
 
-def _blocked_off(blocked_times: list[BlockedTime] | None) -> list[dict[str, Any]]:
+def blocked_off(blocked_times: list[BlockedTime] | None) -> list[dict[str, Any]]:
     """Convert optional blocked clock ranges into the generateYear blockedOff objects."""
     intervals: list[dict[str, Any]] = []
     for blocked in blocked_times or []:
@@ -114,8 +114,8 @@ def generation_body(plans: list[GenerationPlan]) -> list[dict[str, Any]]:
                 }
                 for course in plan.courses
             ],
-            "fitnessFunctionOption": _fitness_option(plan.preference),
-            "blockedOff": _blocked_off(plan.blocked_times),
+            "fitnessFunctionOption": fitness_option(plan.preference),
+            "blockedOff": blocked_off(plan.blocked_times),
         }
         for plan in plans
     ]
