@@ -23,7 +23,7 @@ async def call(client, name, arguments):
 @pytest.mark.anyio
 async def test_discovery_surface_and_schema_savings():
     sizes = {}
-    for profile, count in [("compact", 7), ("legacy", 25)]:
+    for profile, count in [("compact", 8), ("legacy", 26)]:
         async with Client(create_server(tool_profile=profile)) as client:
             tools = (await client.list_tools()).tools
             assert len(tools) == count
@@ -34,6 +34,7 @@ async def test_discovery_surface_and_schema_savings():
                     "uoft_read",
                     "uoft_result",
                     "save_timetable",
+                    "plan_timetable",
                     "uoft_login",
                     "uoft_auth_status",
                     "uoft_forget_session",

@@ -36,6 +36,7 @@ from uoft_mcp.timetable_builder.generation import (
     SectionCode,
     generation_body,
 )
+from uoft_mcp.timetable_builder.planner import register_planner
 from uoft_mcp.utilities.auth import AuthManager
 from uoft_mcp.utilities.auth_browser import ServiceChoice
 
@@ -183,6 +184,7 @@ def create_server(
             "Discover sessions/reference values together before selecting course filters. "
             "Use uoft_login for browser login; never request credentials or Duo codes in chat. "
             "Check uoft_auth_status for progress. Reads never initiate login. "
+            "Use plan_timetable to turn course codes into a schedule in one call. "
             "save_timetable creates a public share. No enrolment or Degree Explorer writes."
         )
         if tool_profile == "compact"
@@ -537,6 +539,7 @@ def create_server(
         result = await ctx.request_context.lifespan_context.auth.forget()
         return json.dumps(result, ensure_ascii=False)
 
+    register_planner(server)
     if tool_profile == "compact":
         register_compact(server, registry)
     return server

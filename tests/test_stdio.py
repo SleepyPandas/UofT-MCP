@@ -12,7 +12,7 @@ from mcp.client.stdio import StdioServerParameters
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("profile,count", [("compact", 7), ("legacy", 25)])
+@pytest.mark.parametrize("profile,count", [("compact", 8), ("legacy", 26)])
 async def test_sdk_connects_to_stdio_from_another_directory(tmp_path, profile, count):
     parameters = StdioServerParameters(
         command=sys.executable,

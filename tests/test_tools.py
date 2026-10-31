@@ -25,6 +25,7 @@ TOOL_NAMES = {
     "search_courses",
     "generate_timetable",
     "save_timetable",
+    "plan_timetable",
     "retrieve_timetable",
     "uoft_login",
     "uoft_auth_status",
@@ -39,7 +40,12 @@ TOOL_NAMES = {
     "degree_explorer_get_planner",
     "degree_explorer_get_cell_details",
 }
-READ_ONLY_TOOLS = TOOL_NAMES - {"save_timetable", "uoft_login", "uoft_forget_session"}
+READ_ONLY_TOOLS = TOOL_NAMES - {
+    "save_timetable",
+    "plan_timetable",
+    "uoft_login",
+    "uoft_forget_session",
+}
 TIMETABLE_STATE = {
     "sessions": ["20269"],
     "timetables": [
@@ -65,7 +71,7 @@ async def test_discovery_and_required_arguments():
             assert tool.description
             assert "ctx" not in tool.input_schema["properties"]
             assert tool.annotations.destructive_hint is (name == "uoft_forget_session")
-            if name in {"save_timetable", "uoft_login"}:
+            if name in {"save_timetable", "plan_timetable", "uoft_login"}:
                 assert tool.annotations.read_only_hint is False
                 assert tool.annotations.idempotent_hint is False
             elif name == "uoft_forget_session":
