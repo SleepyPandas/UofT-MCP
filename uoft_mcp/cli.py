@@ -9,6 +9,12 @@ import sys
 
 from uoft_mcp.doctor import run_doctor
 from uoft_mcp.utilities.auth import AuthManager
+from uoft_mcp.utilities.browser_select import (
+    BrowserUnavailable,
+    browser_label,
+    detect_system_browser,
+    requested_browser,
+)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -30,7 +36,15 @@ def parser() -> argparse.ArgumentParser:
     )
     auth = commands.add_parser("auth", help="Connect Degree Explorer and ACORN")
     actions = auth.add_subparsers(dest="action", required=True)
-    actions.add_parser("setup", help="Install Playwright's matching Chromium browser")
+    setup = actions.add_parser(
+        "setup",
+        help="Download Chromium for sign-in, unless Edge or Chrome is already installed",
+    )
+    setup.add_argument(
+        "--force",
+        action="store_true",
+        help="Download Chromium even if Edge or Chrome is installed",
+    )
     login = actions.add_parser("login", help="Complete official UofT login in a browser")
     login.add_argument("--service", choices=["degree_explorer", "acorn", "both"], default="both")
     login.add_argument("--no-remember", action="store_true", help="Use a fresh memory-only session")
@@ -68,6 +82,35 @@ async def run_auth(args: argparse.Namespace, manager_factory=AuthManager) -> int
         await manager.close()
 
 
+def run_setup(*, force: bool) -> int:
+    """Download Chromium only when sign-in has no installed Edge or Chrome to use."""
+    if not force:
+        try:
+            system = detect_system_browser(requested_browser())
+        except BrowserUnavailable as exc:
+            print(exc, file=sys.stderr)
+            return 1
+        if system is not None:
+            print(
+                f"UofT sign-in will use {browser_label(system)}, which is already installed. "
+                "No download needed. Use --force to download Chromium anyway.",
+                file=sys.stderr,
+            )
+            return 0
+    # Browser installation is explicit and never runs during server startup or a tool call.
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "playwright", "install", "chromium"],
+            stdout=sys.stderr,
+            stderr=sys.stderr,
+            check=False,
+        )
+    except OSError:
+        print("Could not start browser setup. Reinstall uoft-mcp and try again.", file=sys.stderr)
+        return 1
+    return result.returncode
+
+
 def main(argv: list[str] | None = None) -> None:
     args = parser().parse_args(argv)
     logging.basicConfig(level=logging.INFO, stream=sys.stderr)
@@ -79,20 +122,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "doctor":
         raise SystemExit(run_doctor(args.command_path))
     if args.action == "setup":
-        # Browser installation is explicit and never runs during server startup or a tool call.
-        try:
-            result = subprocess.run(
-                [sys.executable, "-m", "playwright", "install", "chromium"],
-                stdout=sys.stderr,
-                stderr=sys.stderr,
-                check=False,
-            )
-            raise SystemExit(result.returncode)
-        except OSError:
-            print(
-                "Could not start browser setup. Reinstall uoft-mcp and try again.", file=sys.stderr
-            )
-            raise SystemExit(1) from None
+        raise SystemExit(run_setup(force=args.force))
     try:
         raise SystemExit(asyncio.run(run_auth(args)))
     except KeyboardInterrupt:
