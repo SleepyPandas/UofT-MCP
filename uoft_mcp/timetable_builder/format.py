@@ -16,7 +16,7 @@ from typing import Any
 
 MAX_SECTIONS_PER_TYPE = 30
 SUMMARY_DESCRIPTION_CHARS = 160
-NOTE_CHARS = 400
+NOTE_CHARS = 1500
 UPSTREAM_PAGE_SIZE = 20
 
 _SEASON_MONTH_DIGITS = {"fall": "9", "winter": "1", "summer": "5"}
@@ -78,6 +78,14 @@ def plain_text(value: Any) -> str | None:
     extractor.close()
     text = " ".join("".join(extractor.parts).split())
     return None if not text or _EMPTY_TEXT.match(text) else text
+
+
+def _truncate_note(text: str, limit: int) -> str:
+    """Shorten a note, saying how much was dropped so no instruction is silently lost."""
+    if len(text) <= limit:
+        return text
+    cut = text[:limit].rsplit(" ", 1)[0] or text[:limit]
+    return f"{cut} [note truncated, {len(text) - len(cut)} more characters]"
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -201,6 +209,55 @@ def _count(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
+def is_open(section: Mapping[str, Any]) -> bool:
+    """Whether the section is neither cancelled nor still waiting for a schedule."""
+    return section.get("cancelInd") != "Y" and section.get("tbaInd") != "Y"
+
+
+def is_full(section: Mapping[str, Any]) -> bool:
+    current, maximum = _count(section.get("currentEnrolment")), _count(section.get("maxEnrolment"))
+    return current is not None and maximum is not None and maximum > 0 and current >= maximum
+
+
+def seats(section: Mapping[str, Any]) -> str | None:
+    """Enrolment text such as "30/37 enrolled" or "37/37 enrolled, FULL, waitlist 3"."""
+    current, maximum = _count(section.get("currentEnrolment")), _count(section.get("maxEnrolment"))
+    if current is None or maximum is None or maximum <= 0:
+        return None
+    text = f"{current}/{maximum} enrolled"
+    if not is_full(section):
+        return text
+    if section.get("waitlistInd") != "Y":
+        return f"{text}, FULL, no waitlist"
+    return f"{text}, FULL, waitlist {_count(section.get('currentWaitlist')) or 0}"
+
+
+def lectures_full(course: Mapping[str, Any]) -> bool:
+    """Whether every open primary section is full, judged from the counts themselves.
+
+    Upstream's ``primaryFull`` flag can disagree with those counts, so it is only the
+    fallback for courses that list no primary sections.
+    """
+    primary = course.get("primaryTeachMethod")
+    sections = [
+        s
+        for s in course.get("sections") or []
+        if isinstance(s, Mapping) and s.get("teachMethod") == primary and is_open(s)
+    ]
+    if not primary or not sections:
+        return bool(course.get("primaryFull"))
+    return all(is_full(section) for section in sections)
+
+
+def _lectures_status(course: Mapping[str, Any]) -> dict[str, bool]:
+    """``lectures_full`` from the counts, plus upstream's flag whenever the two disagree."""
+    derived, upstream = lectures_full(course), bool(course.get("primaryFull"))
+    status = {"lectures_full": derived}
+    if derived != upstream:
+        status["upstream_lectures_full"] = upstream
+    return status
+
+
 def format_section(section: Mapping[str, Any], *, multi_term: bool = False) -> dict[str, Any]:
     meetings = sorted(
         (m for m in section.get("meetingTimes") or [] if isinstance(m, Mapping)),
@@ -239,8 +296,10 @@ def _notes(value: Any, *, limit: int = NOTE_CHARS, count: int = 3) -> list[str]:
     for note in value or []:
         text = plain_text(note.get("content")) if isinstance(note, Mapping) else None
         if text and text not in notes:
-            notes.append(_truncate(text, limit))
-    return notes[:count]
+            notes.append(_truncate_note(text, limit))
+    if len(notes) > count:
+        return [*notes[:count], f"[{len(notes) - count} more notes omitted]"]
+    return notes
 
 
 def _info(course: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -305,7 +364,7 @@ def course_card(course: Mapping[str, Any]) -> dict[str, Any]:
     notes = _notes(course.get("notes"))
     if notes:
         card["notes"] = notes
-    card["lectures_full"] = bool(course.get("primaryFull"))
+    card.update(_lectures_status(course))
     if course.get("primaryWaitlistable"):
         card["waitlistable"] = True
     if course.get("fullyOnline"):
@@ -350,7 +409,7 @@ def course_summary(course: Mapping[str, Any], keyword: str | None = None) -> dic
     breadth, distribution = _breadth_items(course)
     if breadth or distribution:
         summary["breadth"] = breadth + distribution
-    summary["lectures_full"] = bool(course.get("primaryFull"))
+    summary.update(_lectures_status(course))
     if keyword:
         summary["matched_in"] = matched_in(course, keyword)
     return summary

@@ -62,6 +62,25 @@
   `timetable_builder/generation.py` and `timetable_builder/client.py`; `generate_timetable`
   and `save_timetable` behave exactly as before.
 
+### Fixed
+
+- Course cards no longer hide enrolment instructions: course notes keep up to 1,500
+  characters (was 400), and anything cut or dropped is marked with how much was omitted.
+- `lectures_full` on course cards and search rows is now derived from the lecture
+  enrolment counts instead of copying upstream's `primaryFull`, which can say a course
+  has seats when every lecture is full. When the two disagree the row also carries
+  `upstream_lectures_full`.
+- `plan_timetable` no longer returns section pairs the course forbids (for example
+  CSC236H1 LEC0201 with TUT0401). The upstream solver ignores each section's
+  `linkedMeetingSections`, so the planner validates its output against them, swaps in the
+  best allowed combination that clashes with nothing else (reported under Warnings), and
+  fails with a plain explanation when none exists. Courses whose notes carry enrolment
+  instructions the section data does not encode now get a warning quoting the note.
+- `plan_timetable` shows each chosen section's enrolment (`37/37 enrolled, FULL,
+  waitlist 3`) and warns about every full section, noting that seat counts are a
+  snapshot.
+- `plan_timetable` accepts UTSC course codes such as `CSCA08H3`.
+
 ## 0.6.0 — 2026-09-20
 
 ### Changed
