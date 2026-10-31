@@ -20,6 +20,7 @@ from uoft_mcp.timetable_builder.client import (
     request_json,
     shorten_state,
 )
+from uoft_mcp.timetable_builder.format import is_full, is_open, seats
 from uoft_mcp.timetable_builder.generation import (
     BlockedTime,
     GenerationCourse,
@@ -30,6 +31,11 @@ from uoft_mcp.timetable_builder.generation import (
     blocked_off,
     fitness_option,
     generation_body,
+)
+from uoft_mcp.timetable_builder.sections import (
+    compatible_combinations,
+    pairing_problems,
+    unchecked_restriction,
 )
 from uoft_mcp.timetable_builder.share_state import build_share_state
 
@@ -198,9 +204,7 @@ def derive_activity_types(offering: dict[str, Any]) -> list[str]:
     types = {
         section["type"]
         for section in offering.get("sections") or []
-        if isinstance(section.get("type"), str)
-        and not _is_cancelled(section)
-        and section.get("tbaInd") != "Y"
+        if isinstance(section.get("type"), str) and is_open(section)
     }
     if not types:
         raise ToolError(
@@ -347,6 +351,24 @@ def _overlaps(a_start: int, a_end: int, b_start: int, b_end: int) -> bool:
     return a_start < b_end and b_start < a_end
 
 
+def _clash(a: _Meeting, b: _Meeting) -> bool:
+    return a.section != b.section and a.day == b.day and _overlaps(a.start, a.end, b.start, b.end)
+
+
+def _blocked_hits(
+    meetings: list[_Meeting], intervals: list[dict[str, Any]]
+) -> list[tuple[_Meeting, int, int, int]]:
+    """Each meeting inside a blocked interval, with that interval's day, start and end."""
+    hits = []
+    for meeting in meetings:
+        for interval in intervals:
+            day = interval["start"]["day"]
+            start, end = interval["start"]["millisofday"], interval["end"]["millisofday"]
+            if meeting.day == day and _overlaps(meeting.start, meeting.end, start, end):
+                hits.append((meeting, day, start, end))
+    return hits
+
+
 def check_schedule(
     sessions: tuple[str, str],
     planned: list[PlannedCourse],
@@ -355,13 +377,18 @@ def check_schedule(
 ) -> list[str]:
     """Raise when the solver output is unusable; return warnings about broken blocked times.
 
-    The solver treats blocked times as preferences and returns its best effort, so
-    missing sections and overlapping meetings are detected here.
+    The solver treats blocked times as preferences and returns its best effort, and it
+    ignores which sections a section is restricted to, so missing sections, overlapping
+    meetings and mismatched section pairs are detected here.
     """
     chosen = {
         course["code"]: {section.get("type") for section in course["sections"]} for course in solved
     }
-    problems = []
+    problems = [
+        problem
+        for course in solved
+        for problem in pairing_problems(course["code"], course["sections"])
+    ]
     for course in planned:
         missing = [t for t in course.activity_types if t not in chosen.get(course.code, set())]
         if missing:
@@ -372,21 +399,13 @@ def check_schedule(
     for session in sessions:
         meetings = _meetings(solved, session)
         for a, b in itertools.combinations(meetings, 2):
-            if (
-                a.section != b.section
-                and a.day == b.day
-                and _overlaps(a.start, a.end, b.start, b.end)
-            ):
+            if _clash(a, b):
                 problems.append(f"{a.section} ({a.text}) overlaps {b.section} ({b.text})")
-        for meeting in meetings:
-            for interval in intervals:
-                day = interval["start"]["day"]
-                start, end = interval["start"]["millisofday"], interval["end"]["millisofday"]
-                if meeting.day == day and _overlaps(meeting.start, meeting.end, start, end):
-                    warnings.append(
-                        f"{meeting.section} ({meeting.text}) falls inside your blocked time "
-                        f"{_meeting_time(day, start, end)}; the solver could not avoid it."
-                    )
+        for meeting, day, start, end in _blocked_hits(meetings, intervals):
+            warnings.append(
+                f"{meeting.section} ({meeting.text}) falls inside your blocked time "
+                f"{_meeting_time(day, start, end)}; the solver could not avoid it."
+            )
     if problems:
         raise ToolError(
             "I couldn't find a schedule without conflicts: "
@@ -394,6 +413,94 @@ def check_schedule(
             + f". {_REVIEW_HINT}"
         )
     return list(dict.fromkeys(warnings))
+
+
+def _section_names(sections: list[dict[str, Any]]) -> str:
+    return " + ".join(section["name"] for section in sorted(sections, key=lambda s: s["name"]))
+
+
+def repair_pairings(
+    sessions: tuple[str, str],
+    planned: list[PlannedCourse],
+    solved: list[dict[str, Any]],
+    intervals: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Replace sections the solver paired against the course's restrictions.
+
+    The solver ignores section links, so for each offending course this picks the best
+    allowed combination that clashes with nothing else in the plan: fewest broken blocked
+    times first, then keeping the solver's sections (earliest type first), then fewest
+    full sections.
+    A course with no such combination is left alone for ``check_schedule`` to report.
+    """
+    by_code = {p.code: p for p in planned}
+    repaired = list(solved)
+    notes = []
+    for index, course in enumerate(repaired):
+        target = by_code.get(course["code"])
+        if target is None or not pairing_problems(course["code"], course["sections"]):
+            continue
+        others = [c for i, c in enumerate(repaired) if i != index]
+        fixed = {session: _meetings(others, session) for session in sessions}
+        solver_names = {section["name"] for section in course["sections"]}
+        best: tuple[tuple[int, tuple[bool, ...], int], list[dict[str, Any]]] | None = None
+        for combination in compatible_combinations(
+            target.offering["sections"], target.activity_types
+        ):
+            trial = [{**course, "sections": combination}]
+            meetings = {session: _meetings(trial, session) for session in sessions}
+            if any(
+                _clash(a, b)
+                for session in sessions
+                for a, b in itertools.chain(
+                    itertools.product(meetings[session], fixed[session]),
+                    itertools.combinations(meetings[session], 2),
+                )
+            ):
+                continue
+            score = (
+                sum(len(_blocked_hits(meetings[session], intervals)) for session in sessions),
+                tuple(section["name"] not in solver_names for section in combination),
+                sum(is_full(section) for section in combination),
+            )
+            if best is None or score < best[0]:
+                best = (score, combination)
+        if best is None:
+            continue
+        solver_sections = {section["name"]: section for section in course["sections"]}
+        sections = [solver_sections.get(s["name"], s) for s in best[1]]
+        notes.append(
+            f"{course['code']}: the solver picked {_section_names(course['sections'])}, which the "
+            f"course doesn't allow together; used {_section_names(sections)} instead."
+        )
+        repaired[index] = {**course, "sections": sections}
+    return repaired, notes
+
+
+def restriction_warnings(planned: list[PlannedCourse]) -> list[str]:
+    """Course-note enrolment instructions that could not be checked against section data."""
+    warnings = []
+    for course in planned:
+        text = unchecked_restriction(course.offering)
+        if text:
+            warnings.append(
+                f"{course.code} has enrolment instructions this tool can't check; read them "
+                f"before registering: {text}"
+            )
+    return warnings
+
+
+def seat_warnings(solved: list[dict[str, Any]]) -> list[str]:
+    """Name every chosen section that is already full; the solver ignores seat counts."""
+    warnings = [
+        f"{course['code']} {section['name']} has no open seats ({seats(section)})"
+        for course in solved
+        for section in course["sections"]
+        if is_full(section)
+    ]
+    if warnings:
+        warnings.append("Seat counts are a snapshot and change quickly; check ACORN to register.")
+    return warnings
 
 
 def _year_long_blocks(solved: list[dict[str, Any]], winter_session: str) -> list[BlockedTime]:
@@ -489,7 +596,9 @@ def _section_line(section: dict[str, Any], session: str) -> str:
         when = "; ".join(_meeting_text(m) for m in meetings)
     else:
         when = "online, asynchronous" if online.endswith("asynchronous") else "time to be announced"
-    extras = [e for e in (online if meetings else "", _instructors(section)) if e]
+    extras = [
+        e for e in (online if meetings else "", _instructors(section), seats(section) or "") if e
+    ]
     suffix = f" ({'; '.join(extras)})" if extras else ""
     return f"  {section['type']} {section['name']}: {when}{suffix}"
 
@@ -587,7 +696,13 @@ def register_planner(server: MCPServer) -> None:
         planned = await resolve_courses(app, requests)
         sessions = academic_sessions(planned)
         solved = await solve(app, planned, sessions, preference, blocked)
-        warnings = check_schedule(sessions, planned, solved, intervals)
+        solved, adjustments = repair_pairings(sessions, planned, solved, intervals)
+        warnings = [
+            *adjustments,
+            *check_schedule(sessions, planned, solved, intervals),
+            *restriction_warnings(planned),
+            *seat_warnings(solved),
+        ]
         lines = [render_schedule(sessions, planned, solved, preference)]
         if warnings:
             lines += ["", "Warnings:", *(f"- {w}" for w in warnings)]

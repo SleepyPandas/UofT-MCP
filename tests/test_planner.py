@@ -35,7 +35,7 @@ def meeting(day, start, end, session=FALL, room="BA 1130"):
 
 
 def section(
-    name, kind, meetings=(), *, cancel="N", tba="N", people=(), mode="INPER", sessions=None
+    name, kind, meetings=(), *, cancel="N", tba="N", people=(), mode="INPER", sessions=None, **extra
 ):
     return {
         "name": name,
@@ -46,7 +46,28 @@ def section(
         "tbaInd": tba,
         "subTitle": "",
         "deliveryModes": [{"session": s, "mode": mode} for s in sessions or [FALL]],
+        **extra,
     }
+
+
+def linked(name, kind, links, meetings, *, seats=None, **extra):
+    """A section restricted to the given lecture numbers, like real tutorials and practicals."""
+    method = name[:3]
+    counts = {}
+    if seats is not None:
+        counts = {"currentEnrolment": seats[0], "maxEnrolment": seats[1]}
+    return section(
+        name,
+        kind,
+        meetings,
+        teachMethod=method,
+        sectionNumber=name[3:],
+        linkedMeetingSections=[
+            {"teachMethod": "LEC", "sectionNumber": number, "type": None} for number in links
+        ],
+        **counts,
+        **extra,
+    )
 
 
 def course(identifier, code, section_code, sessions, sections, *, name=None, cancel="N"):
@@ -139,7 +160,74 @@ ONLINE = course(
     [WINTER],
     [section("LEC0101", "Lecture", mode="ASYNC", sessions=[WINTER])],
 )
+CSC236_NOTE = (
+    "<p><strong>Timetable Instructions</strong></p>"
+    "<p>Students enrolled in LEC0101 must enrol in TUT0101</p>"
+    "<p>Students enrolled in LEC0201 must enrol in TUT0201 or TUT0202</p>"
+    "<p>Students enrolled in LEC0401 must enrol in TUT0401</p>"
+)
+CSC236_F = course(
+    "csc236f",
+    "CSC236H1",
+    "F",
+    [FALL],
+    [
+        linked("LEC0101", "Lecture", [], [meeting(1, 10, 11)]),
+        linked("LEC0201", "Lecture", [], [meeting(2, 10, 11)]),
+        linked("LEC0401", "Lecture", [], [meeting(3, 10, 11)]),
+        linked("TUT0101", "Tutorial", ["0101"], [meeting(4, 9, 10)], seats=(33, 37)),
+        linked("TUT0201", "Tutorial", ["0201"], [meeting(4, 10, 11)], seats=(37, 37)),
+        linked("TUT0202", "Tutorial", ["0201"], [meeting(5, 9, 10)], seats=(36, 37)),
+        linked("TUT0401", "Tutorial", ["0401"], [meeting(4, 14, 15)], seats=(37, 37)),
+    ],
+)
+CSC236_F["notes"] = [{"name": "Course Note", "content": CSC236_NOTE}]
+CSC258_F = course(
+    "csc258f",
+    "CSC258H1",
+    "F",
+    [FALL],
+    [
+        linked("LEC0101", "Lecture", [], [meeting(1, 13, 14)]),
+        linked("LEC5101", "Lecture", [], [meeting(2, 18, 19)]),
+        linked("PRA5101", "Practical", ["0101"], [meeting(3, 13, 15)]),
+        linked("PRA5201", "Practical", ["0201"], [meeting(3, 15, 17)]),
+        linked("PRA5301", "Practical", ["5101"], [meeting(5, 18, 20)]),
+    ],
+)
+NOTE_ONLY_F = course(
+    "bio120f",
+    "BIO120H1",
+    "F",
+    [FALL],
+    [
+        section("LEC0101", "Lecture", [meeting(1, 9, 10)]),
+        section("TUT0101", "Tutorial", [meeting(2, 9, 10)]),
+    ],
+)
+NOTE_ONLY_F["notes"] = [
+    {"content": "<p>Students in LEC0101 must enrol in TUT0101 " + "x" * 400 + "</p>"}
+]
+CLASH_F = course(
+    "clash100f",
+    "CLA100H1",
+    "F",
+    [FALL],
+    [
+        linked("LEC0101", "Lecture", [], [meeting(1, 9, 10)]),
+        linked("TUT0101", "Tutorial", ["0101"], [meeting(5, 9, 10)]),
+        linked("TUT0102", "Tutorial", ["0201"], [meeting(3, 9, 10)]),
+    ],
+)
+BLOCKER_F = course(
+    "blk100f", "BLK100H1", "F", [FALL], [section("LEC0101", "Lecture", [meeting(5, 9, 10)])]
+)
 CATALOG = {
+    "CSC236H1": [CSC236_F],
+    "CSC258H1": [CSC258_F],
+    "BIO120H1": [NOTE_ONLY_F],
+    "CLA100H1": [CLASH_F],
+    "BLK100H1": [BLOCKER_F],
     "CSC148H1": [CSC_F, CSC_S],
     "ENG140Y1": [ENG_Y],
     "MAT135H1": [MAT_S],
@@ -637,3 +725,133 @@ async def test_invalid_arguments_do_not_reach_upstream(arguments):
     result = await plan(upstream, arguments)
     assert result.is_error
     assert upstream.requests == []
+
+
+def pick(*names_by_id):
+    """A solver that returns exactly the named sections, as the real one may ignore links."""
+    wanted = dict(names_by_id)
+
+    def solver(body):
+        courses = []
+        for requested in body[0]["courses"]:
+            full = BY_ID[requested["id"]]
+            names = wanted[requested["id"]]
+            courses.append(
+                {**full, "sections": [s for s in full["sections"] if s["name"] in names]}
+            )
+        return [{"courses": courses}]
+
+    return solver
+
+
+@pytest.mark.anyio
+async def test_mismatched_tutorial_is_repaired_to_an_open_allowed_section():
+    upstream = Upstream(pick(("csc236f", {"LEC0201", "TUT0401"})))
+    result = await plan(upstream, {"course_codes": ["CSC236H1"], "share": False})
+    assert not result.is_error, result.content
+    text = text_of(result)
+    assert "Lecture LEC0201: Tue 10:00-11:00 BA 1130" in text
+    assert "Tutorial TUT0202: Fri 09:00-10:00 BA 1130 (36/37 enrolled)" in text
+    assert "TUT0401" not in text.split("Warnings:")[0]
+    assert (
+        "- CSC236H1: the solver picked LEC0201 + TUT0401, which the course doesn't allow "
+        "together; used LEC0201 + TUT0202 instead."
+    ) in text
+    assert "is full" not in text
+
+
+@pytest.mark.anyio
+async def test_repair_uses_course_links_not_numeric_suffixes():
+    upstream = Upstream(pick(("csc258f", {"LEC5101", "PRA5201"})))
+    result = await plan(upstream, {"course_codes": ["CSC258H1"], "share": False})
+    assert not result.is_error, result.content
+    text = text_of(result)
+    assert "Lecture LEC5101" in text and "Practical PRA5301" in text
+    assert "PRA5201:" not in text
+
+
+@pytest.mark.anyio
+async def test_repaired_sections_are_what_gets_shared():
+    upstream = Upstream(pick(("csc258f", {"LEC5101", "PRA5201"})))
+    result = await plan(upstream, {"course_codes": ["CSC258H1"]})
+    assert not result.is_error, result.content
+    included = upstream.shared_state()["timetables"][0]["includedSections"]
+    assert sorted(s["name"] for s in included) == ["LEC5101", "PRA5301"]
+
+
+@pytest.mark.anyio
+async def test_valid_pairing_is_left_alone():
+    upstream = Upstream(pick(("csc258f", {"LEC5101", "PRA5301"})))
+    result = await plan(upstream, {"course_codes": ["CSC258H1"], "share": False})
+    assert not result.is_error, result.content
+    assert "Adjusted" not in text_of(result) and "doesn't allow" not in text_of(result)
+    assert "Warnings:" not in text_of(result)
+
+
+@pytest.mark.anyio
+async def test_repair_avoids_clashes_with_the_rest_of_the_plan():
+    upstream = Upstream(pick(("csc236f", {"LEC0201", "TUT0401"}), ("blk100f", {"LEC0101"})))
+    result = await plan(upstream, {"course_codes": ["CSC236H1", "BLK100H1"], "share": False})
+    assert not result.is_error, result.content
+    text = text_of(result)
+    assert "Tutorial TUT0201: Thu 10:00-11:00" in text
+    assert "TUT0202:" not in text.split("Warnings:")[0]
+    assert "- CSC236H1 TUT0201 has no open seats (37/37 enrolled, FULL, no waitlist)" in text
+    assert "Seat counts are a snapshot" in text
+
+
+@pytest.mark.anyio
+async def test_repair_prefers_fewest_broken_blocked_times_over_open_seats():
+    upstream = Upstream(pick(("csc236f", {"LEC0201", "TUT0401"})))
+    result = await plan(
+        upstream,
+        {
+            "course_codes": ["CSC236H1"],
+            "blocked_times": [{"day": "Friday", "start": "09:00", "end": "10:00"}],
+            "share": False,
+        },
+    )
+    assert not result.is_error, result.content
+    assert "Tutorial TUT0201: Thu 10:00-11:00" in text_of(result)
+    assert "falls inside your blocked time" not in text_of(result)
+
+
+@pytest.mark.anyio
+async def test_unrepairable_pairing_is_reported_plainly():
+    upstream = Upstream(pick(("clash100f", {"LEC0101", "TUT0102"}), ("blk100f", {"LEC0101"})))
+    result = await plan(upstream, {"course_codes": ["CLA100H1", "BLK100H1"], "share": False})
+    assert result.is_error
+    message = text_of(result)
+    assert "I couldn't find a schedule without conflicts: " in message
+    assert "CLA100H1 TUT0102 is only for LEC0201, but the plan has LEC0101" in message
+    assert "tiny/shorten" not in upstream.paths()
+
+
+@pytest.mark.anyio
+async def test_full_sections_are_listed_with_seats_and_warned_about():
+    upstream = Upstream(pick(("csc236f", {"LEC0401", "TUT0401"})))
+    result = await plan(upstream, {"course_codes": ["CSC236H1"], "share": False})
+    assert not result.is_error, result.content
+    text = text_of(result)
+    assert "Tutorial TUT0401: Thu 14:00-15:00 BA 1130 (37/37 enrolled, FULL, no waitlist)" in text
+    assert "- CSC236H1 TUT0401 has no open seats (37/37 enrolled, FULL, no waitlist)" in text
+    assert "Seat counts are a snapshot and change quickly" in text
+
+
+@pytest.mark.anyio
+async def test_note_only_restrictions_are_warned_about_not_guessed():
+    upstream = Upstream()
+    result = await plan(upstream, {"course_codes": ["BIO120H1"], "share": False})
+    assert not result.is_error, result.content
+    text = text_of(result)
+    assert "- BIO120H1 has enrolment instructions this tool can't check; read them" in text
+    assert "must enrol in TUT0101" in text
+    assert "xxx..." in text
+
+
+@pytest.mark.anyio
+async def test_courses_with_checked_links_do_not_get_the_unchecked_warning():
+    upstream = Upstream(pick(("csc236f", {"LEC0101", "TUT0101"})))
+    result = await plan(upstream, {"course_codes": ["CSC236H1"], "share": False})
+    assert not result.is_error, result.content
+    assert "can't check" not in text_of(result)
