@@ -19,6 +19,7 @@ DIRECT_TOOLS = frozenset(
 )
 # Upstream needs a cell selector that is not documented, so every call fails with HTTP 500.
 LEGACY_ONLY = frozenset({"degree_explorer_get_cell_details"})
+MAX_LIMIT = 25
 
 
 @dataclass(frozen=True)
@@ -96,15 +97,17 @@ class Registry:
                 continue
             if query.strip() in self.operations and operation.name != query.strip():
                 continue
-            haystack = (operation.name + " " + operation.description).lower()
+            identity = (operation.name + " " + operation.service).lower()
+            haystack = identity + " " + operation.description.lower()
             exact = query.strip() == operation.name
             score = sum(word in haystack for word in words)
             if words and not score and not exact:
                 continue
-            matches.append((not exact, -score, operation.name, operation))
-        matches.sort(key=lambda item: item[:3])
+            named = sum(word in identity for word in words)
+            matches.append((not exact, -named, -score, operation.name, operation))
+        matches.sort(key=lambda item: item[:4])
         items: list[Any] = []
-        for _, _, _, operation in matches[:limit]:
+        for *_, operation in matches[:limit]:
             if detail == "names":
                 items.append(operation.name)
                 continue
@@ -120,4 +123,18 @@ class Registry:
                     arguments=operation.arguments.model_json_schema(),
                 )
             items.append(item)
-        return {"operations": items, "total": len(matches), "has_more": len(matches) > limit}
+        result: dict[str, Any] = {
+            "operations": items,
+            "total": len(matches),
+            "has_more": len(matches) > limit,
+        }
+        if result["has_more"]:
+            more = len(matches) - limit
+            result["more"] = more
+            result["hint"] = (
+                f"{more} more matched. "
+                + ("Raise limit" if limit < MAX_LIMIT else "Narrow the query")
+                + ("" if service else " or set service")
+                + " to see them."
+            )
+        return result

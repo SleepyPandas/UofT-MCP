@@ -39,13 +39,18 @@ dispatched through the read batch. There are no Degree Explorer or ACORN writes.
 
 | Parameter | Default | Meaning |
 | --- | --- | --- |
-| `query` | `""` | Search operation names and descriptions. Exact names return only that operation. |
+| `query` | `""` | Search operation names, services, and descriptions. Exact names return only that operation. |
 | `service` | omitted | Restrict to `timetable`, `degree_explorer`, or `acorn`. |
 | `detail` | `descriptions` | `names`, `descriptions`, or `schemas`. |
 | `limit` | 5 | Maximum matches, from 1 to 25. |
 
-Results contain `operations`, `total`, and `has_more`. Text searches rank by matched
-words, with names breaking ties. Descriptions show service and authentication
+Results contain `operations`, `total`, and `has_more`. Text searches rank operations
+whose name or service matches the most query words first (so `acorn` and `degree
+explorer` prefer those services' operations), then by words matched anywhere including
+the description, then by name. When `has_more` is true, `more` gives the number of
+matches not shown and `hint` says whether to raise `limit` (up to 25), set `service`, or
+narrow the query; for example, `{"service":"degree_explorer","limit":25}` lists all eight
+compact Degree Explorer operations. Descriptions show service and authentication
 requirements; schemas additionally include full documentation and the argument
 JSON Schema. These schemas describe operations inside `uoft_read`, not additional
 dynamically registered MCP tools. No client-specific tool-loading extension is needed.
@@ -297,7 +302,9 @@ Compact's three calls are discovery, one batch, and one extra snapshot page. Wit
 the extra page it takes two cold calls; with known schemas it takes one. Paging adds
 zero university requests. Legacy receives the complete data in its three calls.
 Definition size is approximately 52.2% smaller (the two course research tools and
-`plan_timetable` add 4,499 bytes to both profiles; compact was 65.7% smaller before them).
+`plan_timetable` add 4,425 bytes to both profiles, measured as the difference between the
+serialized tool list above and the same list without those three tools; compact was
+65.7% smaller before them).
 These deliberately large fixtures
 show response reductions of 99.4% and 98.2%, respectively; small responses or repeated
 discovery may have little benefit or greater overhead.

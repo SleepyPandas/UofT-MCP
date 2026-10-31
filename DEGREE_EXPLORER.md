@@ -2,8 +2,9 @@
 
 The default compact profile exposes eight Degree Explorer read operations through
 `uoft_read`. `degree_explorer_get_cell_details` is legacy-only: without cell selectors
-its route returns HTTP 500, so compact discovery leaves it out. Find their schemas with `uoft_discover` using
-`service: "degree_explorer"`. For example:
+its route returns HTTP 500, so compact discovery leaves it out. Find their schemas with
+`uoft_discover` using `service: "degree_explorer"` and `limit: 25` (the default limit
+of 5 shows only five of the eight). For example:
 
 ```json
 {"requests":[{"operation":"degree_explorer_get_academic_history"},

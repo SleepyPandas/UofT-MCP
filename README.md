@@ -99,6 +99,10 @@ It opens a separate, empty browser profile; your own profile and cookies are nev
 `uoft-mcp doctor` shows which browser it will use. If you have neither, run
 `uoft-mcp auth setup` once to download Chromium.
 
+Afterwards, assistants find the private reads with a service filter, for example
+`uoft_discover` with `{"service":"acorn"}` or
+`{"service":"degree_explorer","limit":25}` (all eight compact Degree Explorer operations).
+
 Passwords and Duo codes belong only on UofT's pages, never in chat or config. Your login is
 encrypted locally and reused across restarts; see [AUTHENTICATION.md](AUTHENTICATION.md)
 for details, including `UOFT_MCP_BROWSER` to pick a browser.
@@ -204,6 +208,12 @@ For example, call `uoft_discover` with
   {"operation":"get_course_details","arguments":{"course_code":"CSC148H1"}}
 ]}
 ```
+
+To browse a service instead, filter by it: `{"service":"acorn"}` or
+`{"service":"degree_explorer","limit":25}`. A free-text query ranks operations whose
+name or service matches above ones that only mention it in their description. When a
+default limit of 5 hides matches, the result adds `more` and a `hint` saying how many
+remain and whether to raise `limit` (up to 25), set `service`, or narrow the query.
 
 Results contain per-operation data or errors, retrieval timestamps, and transient
 handles. Arrays default to 20 rows, with a maximum of 100; selected JSON data is

@@ -56,9 +56,14 @@
 ### Changed
 
 - Tool counts are now ten (compact) and 28 (legacy). The course research tools and
-  `plan_timetable` add 4,499 bytes of tool definitions to both profiles, so compact
-  definitions are 52.2% smaller than legacy (was 65.7%); the 50% regression budget in
-  the tests is unchanged.
+  `plan_timetable` add about 4.4 KB of tool definitions to both profiles (4,425 bytes
+  by the benchmark's serializer), so compact definitions are 52.2% smaller than legacy
+  (was 65.7%); the 50% regression budget in the tests is unchanged.
+- `uoft_discover` ranks operations whose name or service matches the query above ones that
+  only mention it in their description, so `acorn` lists the ACORN operations before
+  `generate_timetable`. When the limit hides matches, the result adds `more` and a
+  `hint` saying how many remain and how to see them (raise `limit` up to 25, set
+  `service`, or narrow the query). Docs show service-filtered discovery.
 - Compact instructions tell models to prefer `find_courses` and `course_info` for course
   questions.
 - Sign in with an installed Microsoft Edge or Google Chrome, falling back to Chromium
@@ -76,6 +81,25 @@
 - Move the `generateYear` request models and share posting into
   `timetable_builder/generation.py` and `timetable_builder/client.py`; `generate_timetable`
   and `save_timetable` behave exactly as before.
+
+### Fixed
+
+- Course cards no longer hide enrolment instructions: course notes keep up to 1,500
+  characters (was 400), and anything cut or dropped is marked with how much was omitted.
+- `lectures_full` on course cards and search rows is now derived from the lecture
+  enrolment counts instead of copying upstream's `primaryFull`, which can say a course
+  has seats when every lecture is full. When the two disagree the row also carries
+  `upstream_lectures_full`.
+- `plan_timetable` no longer returns section pairs the course forbids (for example
+  CSC236H1 LEC0201 with TUT0401). The upstream solver ignores each section's
+  `linkedMeetingSections`, so the planner validates its output against them, swaps in the
+  best allowed combination that clashes with nothing else (reported under Warnings), and
+  fails with a plain explanation when none exists. Courses whose notes carry enrolment
+  instructions the section data does not encode now get a warning quoting the note.
+- `plan_timetable` shows each chosen section's enrolment (`37/37 enrolled, FULL,
+  waitlist 3`) and warns about every full section, noting that seat counts are a
+  snapshot.
+- `plan_timetable` accepts UTSC course codes such as `CSCA08H3`.
 
 ## 0.6.0 — 2026-09-20
 

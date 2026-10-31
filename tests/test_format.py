@@ -4,6 +4,7 @@ import pytest
 
 from uoft_mcp.timetable_builder.format import (
     MAX_SECTIONS_PER_TYPE,
+    NOTE_CHARS,
     UnexpectedShape,
     clock,
     course_card,
@@ -13,9 +14,11 @@ from uoft_mcp.timetable_builder.format import (
     extract_courses,
     format_meeting,
     format_section,
+    lectures_full,
     matched_in,
     page_window,
     plain_text,
+    seats,
     session_label,
     term_label,
     text_list,
@@ -460,3 +463,69 @@ def test_extract_courses_shapes():
 )
 def test_page_window(page, size, expected):
     assert page_window(page, size) == expected
+
+
+def primary_course(*lectures, upstream=False, **overrides):
+    sections = [section(f"LEC{n:04d}", teachMethod="LEC", **row) for n, row in enumerate(lectures)]
+    return course(primaryTeachMethod="LEC", primaryFull=upstream, sections=sections, **overrides)
+
+
+FULL_LECTURE = {"currentEnrolment": 196, "maxEnrolment": 196, "waitlistInd": "Y"}
+
+
+def test_lectures_full_comes_from_section_counts_and_reports_upstream_disagreement():
+    mat334 = primary_course(FULL_LECTURE, {**FULL_LECTURE, "currentWaitlist": 32})
+    card = course_card(mat334)
+    assert lectures_full(mat334) is True
+    assert card["lectures_full"] is True and card["upstream_lectures_full"] is False
+    assert course_summary(mat334)["upstream_lectures_full"] is False
+
+
+def test_lectures_full_is_false_while_any_open_primary_section_has_seats():
+    row = primary_course(FULL_LECTURE, {"currentEnrolment": 150, "maxEnrolment": 156})
+    assert lectures_full(row) is False
+    cancelled = primary_course(FULL_LECTURE, {"currentEnrolment": 1, "cancelInd": "Y"})
+    assert lectures_full(cancelled) is True
+    assert "upstream_lectures_full" not in course_card(primary_course(FULL_LECTURE, upstream=True))
+
+
+def test_lectures_full_falls_back_to_upstream_without_primary_sections():
+    assert lectures_full(course(primaryFull=True)) is True
+    assert lectures_full(course(primaryFull=False, sections=[])) is False
+    assert lectures_full(course(primaryFull=False, sections=[section(teachMethod=None)])) is False
+    assert "upstream_lectures_full" not in course_card(course(primaryFull=True, sections=[]))
+
+
+def test_seats_text():
+    assert seats(section()) == "37/40 enrolled"
+    assert seats(section(currentEnrolment=40)) == "40/40 enrolled, FULL, no waitlist"
+    full = section(currentEnrolment=40, waitlistInd="Y", currentWaitlist=3)
+    assert seats(full) == "40/40 enrolled, FULL, waitlist 3"
+    assert seats(section(maxEnrolment=0)) is None
+    assert seats(section(currentEnrolment=None)) is None
+
+
+def test_long_course_notes_keep_instructions_and_mark_any_truncation():
+    pairing = "Students enrolled in LEC0201 must enrol in TUT0201, TUT0202, TUT0203, or TUT0204"
+    notes = [
+        {"content": "<p><strong>Timetable Instructions</strong></p>" + f"<p>{pairing}</p>" * 5}
+    ]
+    kept = course_card(course(notes=notes))["notes"][0]
+    assert kept.count(pairing) == 5
+    assert "truncated" not in kept
+
+    huge = "word " * NOTE_CHARS
+    clipped = course_card(course(notes=[{"content": huge}]))["notes"][0]
+    assert "[note truncated, " in clipped and clipped.endswith("more characters]")
+    dropped = len(huge.strip()) - len(clipped.split(" [note truncated")[0])
+    assert f"{dropped} more characters" in clipped
+
+
+def test_extra_course_notes_are_counted_not_silently_dropped():
+    notes = [{"content": f"Note {n}"} for n in range(5)]
+    assert course_card(course(notes=notes))["notes"] == [
+        "Note 0",
+        "Note 1",
+        "Note 2",
+        "[2 more notes omitted]",
+    ]
