@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import json
+import re
+import zlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 from uoft_mcp.status import (
     StatusKind,
@@ -50,6 +54,33 @@ SERVICES = {
 
 
 CREDENTIAL_PROMPT = 'input[type="password"], iframe[src*="duosecurity.com"], #duo_iframe'
+IDP_HOSTS = frozenset({"idpz.utorauth.utoronto.ca", "weblogin.utoronto.ca"})
+SSO_REDIRECT_HOPS = 4
+MAX_SAML_REQUEST_BYTES = 64 * 1024
+_FORCE_AUTHN = re.compile(rb'ForceAuthn="([^"]*)"')
+
+
+def forces_fresh_sign_in(location: str) -> bool:
+    """True when a redirect to UofT's IdP carries a SAML request with ForceAuthn set.
+
+    Such a request makes the IdP ask for a password and Duo even when its own session is
+    still valid, so a hidden browser can never renew the application session.
+    """
+    parts = urlsplit(location)
+    if parts.hostname not in IDP_HOSTS:
+        return False
+    values = parse_qs(parts.query).get("SAMLRequest")
+    if not values:
+        return False
+    try:
+        # HTTP-Redirect binding: raw DEFLATE, then base64; bounded against oversized input.
+        xml = zlib.decompressobj(-15).decompress(
+            base64.b64decode(values[0], validate=False), MAX_SAML_REQUEST_BYTES
+        )
+    except (binascii.Error, ValueError, zlib.error):
+        return False
+    match = _FORCE_AUTHN.search(xml)
+    return match is not None and match.group(1).strip().lower() in {b"1", b"true"}
 
 
 class BrowserError(Exception):
@@ -92,11 +123,7 @@ def classify_and_parse_response(
     if 300 <= status < 400:
         destination = urlsplit(urljoin(service.probe_url, headers.get("location", "")))
         host = destination.hostname or ""
-        if (
-            host in {"idpz.utorauth.utoronto.ca", "weblogin.utoronto.ca"}
-            or host == "duosecurity.com"
-            or host.endswith(".duosecurity.com")
-        ):
+        if host in IDP_HOSTS or host == "duosecurity.com" or host.endswith(".duosecurity.com"):
             return login, None
         return _probe(StatusKind.PAGE_CHANGED, service, "unexpected redirect"), None
     lower = body.lower()
@@ -188,6 +215,8 @@ class PlaywrightSession:
         """
         if self.context is not None or self.api is None:
             return ProbeResult("login_required", "Interactive login is in progress.")
+        if await self._requires_fresh_sign_in(service):
+            return _probe(StatusKind.SIGNED_OUT, service, "UofT requires a fresh sign-in")
         browser = context = None
         try:
             state = await self.snapshot()
@@ -227,6 +256,32 @@ class PlaywrightSession:
                         await resource.close()
                     except Exception:
                         pass
+
+    async def _requires_fresh_sign_in(self, service: Service) -> bool:
+        """Follow the service's own redirects to its SSO request, without a browser.
+
+        Any failure or unexpected response returns False so the browser attempt still runs.
+        """
+        url = service.app_url
+        for _ in range(SSO_REDIRECT_HOPS):
+            response = None
+            try:
+                response = await self.api.get(url, timeout=15_000, max_redirects=0)
+                location = response.headers.get("location")
+                if not 300 <= response.status < 400 or not location:
+                    return False
+            except Exception:
+                return False
+            finally:
+                if response is not None:
+                    try:
+                        await response.dispose()
+                    except Exception:
+                        pass
+            url = urljoin(url, location)
+            if urlsplit(url).hostname != urlsplit(service.app_url).hostname:
+                return forces_fresh_sign_in(url)
+        return False
 
     @staticmethod
     def _at_service(url: str, service: Service) -> bool:
