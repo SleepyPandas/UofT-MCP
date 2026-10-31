@@ -122,7 +122,7 @@ for details, including `UOFT_MCP_BROWSER` to pick a browser.
 
 Prefer not to install anything permanently? Run it on demand with `uvx uoft-mcp@latest` as the
 client command (`"command": "uvx", "args": ["uoft-mcp@latest"]`). To pin a release use
-`"uoft-mcp==0.6.0"`. No API key, server URL, or listening port is ever needed.
+`"uoft-mcp==0.7.0"`. No API key, server URL, or listening port is ever needed.
 
 ## Local Development
 
