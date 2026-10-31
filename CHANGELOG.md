@@ -57,6 +57,12 @@
   `timetable_builder/generation.py` and `timetable_builder/client.py`; `generate_timetable`
   and `save_timetable` behave exactly as before.
 
+### Fixed
+
+- `degree_explorer_get_cell_details` is no longer a compact `uoft_read` operation. Without
+  cell selectors its route answered HTTP 500 on every call in live testing, so discovery
+  now lists 20 operations instead of 21. The legacy profile still has the tool.
+
 ## 0.6.0 — 2026-09-20
 
 ### Changed

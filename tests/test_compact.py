@@ -42,7 +42,8 @@ async def test_discovery_surface_and_schema_savings():
                     "course_info",
                 }
                 all_ops = await call(client, "uoft_discover", {"detail": "names", "limit": 25})
-                assert len(all_ops["operations"]) == 21
+                assert len(all_ops["operations"]) == 20
+                assert "degree_explorer_get_cell_details" not in all_ops["operations"]
                 assert "save_timetable" not in all_ops["operations"]
                 exact = await call(
                     client,
@@ -107,6 +108,7 @@ async def test_batch_dedup_partial_failure_and_snapshot_paging():
     "bad",
     [
         {"operation": "save_timetable"},
+        {"operation": "degree_explorer_get_cell_details"},
         {"operation": "https://example.com"},
         {"operation": "get_course_details", "arguments": {"course_code": "../bad"}},
         {"operation": "get_current_sessions", "arguments": {"unexpected": 1}},

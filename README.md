@@ -311,7 +311,7 @@ remain direct tools and cannot be included in a read batch.
 | `degree_explorer_get_messages` | No arguments. Read the UI string catalog, not a student inbox. |
 | `degree_explorer_get_session_timeouts` | No arguments. Read client timeout settings; they do not extend a session. |
 | `degree_explorer_get_planner` | No arguments. Read existing planner timelines and primary-plan flags. |
-| `degree_explorer_get_cell_details` | No arguments. Read the unparameterized planner popup endpoint; it cannot target a cell. |
+| `degree_explorer_get_cell_details` | Legacy profile only. No arguments. Read the unparameterized planner popup endpoint; it cannot target a cell and currently returns HTTP 500. |
 
 See [Degree Explorer tools and workflow](DEGREE_EXPLORER.md) for all nine authenticated
 reads, their fixed API routes, and limitations. Each underlying operation accepts `{}` and reads only
