@@ -3,7 +3,12 @@
 from enum import StrEnum
 from typing import Any
 
-from uoft_mcp.status import ServiceReadError, classify_exception
+from uoft_mcp.status import (
+    ServiceReadError,
+    StatusKind,
+    classify_exception,
+    classify_route_failure,
+)
 from uoft_mcp.utilities.auth_browser import Service, classify_and_parse_response
 
 BASE_URL = "https://degreeexplorer.utoronto.ca/degreeExplorer/rest"
@@ -49,6 +54,10 @@ async def request_degree_explorer(api: Any, endpoint: DegreeExplorerEndpoint) ->
             service, response.status, response.headers, body
         )
         if result.state != "connected":
+            if result.kind is StatusKind.SERVICE_DOWN:
+                route = classify_route_failure("degree_explorer", response.status, body)
+                if route is not None:
+                    raise DegreeExplorerError.from_status(route)
             raise DegreeExplorerError(result.message, result.state, result.kind)
         return payload
     except DegreeExplorerError:

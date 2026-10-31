@@ -12,6 +12,7 @@ from uoft_mcp.status import (
     StatusKind,
     classify_exception,
     describe,
+    invalidates_private_data,
     kind_for_state,
     legacy_state,
     service_label,
@@ -141,13 +142,10 @@ class AuthManager:
             await self._backend.start(self._state)
 
     def _record(self, name: str, result: ProbeResult) -> None:
-        if result.state != "connected":
+        kind = result.kind or kind_for_state(result.state)
+        if invalidates_private_data(kind):
             self.on_session_change()
-        self._services[name].update(
-            state=result.state,
-            message=result.message,
-            kind=(result.kind or kind_for_state(result.state)).value,
-        )
+        self._services[name].update(state=result.state, message=result.message, kind=kind.value)
         if result.state == "connected":
             self._services[name]["last_verified"] = datetime.now(UTC).isoformat()
 
@@ -339,7 +337,9 @@ class AuthManager:
                         lambda: self._backend.read_degree_explorer(endpoint),
                     )
                 except DegreeExplorerError as exc:
-                    self._record("degree_explorer", ProbeResult(exc.state, str(exc), exc.kind))
+                    # One failing route says nothing about the connection or the other routes.
+                    if exc.kind is not StatusKind.ROUTE_ERROR:
+                        self._record("degree_explorer", ProbeResult(exc.state, str(exc), exc.kind))
                     raise
                 else:
                     connected = describe(StatusKind.CONNECTED, "degree_explorer")
@@ -379,7 +379,8 @@ class AuthManager:
                         "acorn", AcornError, lambda: self._backend.read_acorn(endpoint)
                     )
                 except AcornError as exc:
-                    self._record("acorn", ProbeResult(exc.state, str(exc), exc.kind))
+                    if exc.kind is not StatusKind.ROUTE_ERROR:
+                        self._record("acorn", ProbeResult(exc.state, str(exc), exc.kind))
                     raise
                 else:
                     connected = describe(StatusKind.CONNECTED, "acorn")

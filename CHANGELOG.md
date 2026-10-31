@@ -62,6 +62,16 @@
 - `degree_explorer_get_cell_details` is no longer a compact `uoft_read` operation. Without
   cell selectors its route answered HTTP 500 on every call in live testing, so discovery
   now lists 20 operations instead of 21. The legacy profile still has the tool.
+- A 5xx from one Degree Explorer or ACORN read (other than 503 or a maintenance page) is
+  now reported as a server error for that request, for example "Degree Explorer returned
+  a server error for this request (HTTP 500). Other reads may still work", instead of
+  "Degree Explorer is down". It no longer marks the service as unavailable in
+  `uoft_auth_status`.
+- A failed or unavailable read no longer discards the other reads in the same `uoft_read`
+  batch, or earlier snapshot handles. Private snapshots are now cleared only when sign-in
+  state may have changed (signed out, access denied, login, forget, account switch,
+  or an unclassified failure); outages, rate limits, network errors, and changed or
+  rejected requests keep them.
 
 ## 0.6.0 — 2026-09-20
 

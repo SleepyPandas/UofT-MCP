@@ -18,7 +18,9 @@ from uoft_mcp.status import (
     StatusKind,
     classify_exception,
     classify_http_status,
+    classify_route_failure,
     describe,
+    invalidates_private_data,
     kind_for_state,
     legacy_state,
     looks_like_maintenance,
@@ -75,6 +77,7 @@ def test_kinds_map_onto_the_existing_machine_readable_states():
         StatusKind.LOGIN_IN_PROGRESS: "login_in_progress",
         StatusKind.ACCESS_DENIED: "access_denied",
         StatusKind.SERVICE_DOWN: "unavailable",
+        StatusKind.ROUTE_ERROR: "unavailable",
         StatusKind.RATE_LIMITED: "unavailable",
         StatusKind.NETWORK: "unavailable",
         StatusKind.UNKNOWN: "unavailable",
@@ -118,6 +121,15 @@ def test_example_messages_read_as_plain_words():
     assert describe(StatusKind.DUO_PENDING, "").summary == "Duo sign-in pending or failed."
 
 
+def test_route_error_blames_the_request_not_the_service():
+    message = describe(StatusKind.ROUTE_ERROR, "degree_explorer", "HTTP 500").message
+    assert message == (
+        "Degree Explorer returned a server error for this request (HTTP 500). "
+        "Other reads may still work; try this one again later."
+    )
+    assert "down" not in message
+
+
 def test_access_denied_advice_depends_on_whether_login_applies():
     private = describe(StatusKind.ACCESS_DENIED, "acorn", "HTTP 403")
     public = describe(StatusKind.ACCESS_DENIED, "timetable", "HTTP 403")
@@ -153,6 +165,51 @@ def test_missing_public_route_is_a_rejected_request_not_a_changed_page():
     assert result is not None
     assert result.kind is StatusKind.REQUEST_REJECTED
     assert "HTTP 404 at getCoursesByCodeAndSectionCode/X" in result.message
+
+
+@pytest.mark.parametrize("status", [500, 502, 504, 599])
+def test_other_5xx_on_one_route_is_a_route_failure(status):
+    result = classify_route_failure("degree_explorer", status, "SECRET")
+    assert result is not None
+    assert result.kind is StatusKind.ROUTE_ERROR
+    assert f"HTTP {status}" in result.message
+    assert "SECRET" not in result.message
+
+
+@pytest.mark.parametrize(
+    "status,body",
+    [
+        (503, ""),
+        (500, "<h1>Down for maintenance</h1>"),
+        (429, ""),
+        (404, ""),
+        (200, ""),
+    ],
+)
+def test_outages_and_non_5xx_are_not_route_failures(status, body):
+    assert classify_route_failure("acorn", status, body) is None
+
+
+@pytest.mark.parametrize(
+    "kind,invalidates",
+    [
+        (StatusKind.CONNECTED, False),
+        (StatusKind.SERVICE_DOWN, False),
+        (StatusKind.ROUTE_ERROR, False),
+        (StatusKind.RATE_LIMITED, False),
+        (StatusKind.NETWORK, False),
+        (StatusKind.PAGE_CHANGED, False),
+        (StatusKind.REQUEST_REJECTED, False),
+        (StatusKind.NOT_CHECKED, True),
+        (StatusKind.SIGNED_OUT, True),
+        (StatusKind.DUO_PENDING, True),
+        (StatusKind.LOGIN_IN_PROGRESS, True),
+        (StatusKind.ACCESS_DENIED, True),
+        (StatusKind.UNKNOWN, True),
+    ],
+)
+def test_only_authentication_statuses_invalidate_private_data(kind, invalidates):
+    assert invalidates_private_data(kind) is invalidates
 
 
 @pytest.mark.parametrize("status", [200, 204, 301, 302])
@@ -474,5 +531,58 @@ async def test_read_during_login_uses_login_in_progress_kind(tmp_path):
             await auth.read_acorn(AcornEndpoint.DASHBOARD_COURSES)
         assert error.value.kind is StatusKind.LOGIN_IN_PROGRESS
         assert error.value.state == "login_in_progress"
+    finally:
+        await auth.close()
+
+
+@pytest.mark.anyio
+async def test_route_error_leaves_the_service_connected_and_keeps_snapshots(tmp_path):
+    auth, browser = manager(tmp_path)
+    changes = []
+    auth.on_session_change = lambda: changes.append(1)
+    browser.read_degree_explorer = AsyncMock(
+        side_effect=DegreeExplorerError.from_status(
+            describe(StatusKind.ROUTE_ERROR, "degree_explorer", "HTTP 500")
+        )
+    )
+    try:
+        await auth.login("degree_explorer")
+        await auth.wait_for_login()
+        changes.clear()
+        with pytest.raises(DegreeExplorerError) as error:
+            await auth.read_degree_explorer(DegreeExplorerEndpoint.PLANNER)
+        assert error.value.kind is StatusKind.ROUTE_ERROR
+        service = auth.status()["services"]["degree_explorer"]
+        assert service["state"] == "connected"
+        assert not changes
+    finally:
+        await auth.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "kind,invalidates",
+    [
+        (StatusKind.SERVICE_DOWN, False),
+        (StatusKind.RATE_LIMITED, False),
+        (StatusKind.NETWORK, False),
+        (StatusKind.SIGNED_OUT, True),
+        (StatusKind.ACCESS_DENIED, True),
+    ],
+)
+async def test_read_failure_invalidates_private_data_only_for_authentication(
+    tmp_path, kind, invalidates
+):
+    auth, browser = manager(tmp_path)
+    changes = []
+    auth.on_session_change = lambda: changes.append(1)
+    browser.read_acorn = AsyncMock(
+        side_effect=AcornError.from_status(describe(kind, "acorn", "HTTP 599"))
+    )
+    try:
+        with pytest.raises(AcornError):
+            await auth.read_acorn(AcornEndpoint.DASHBOARD_COURSES)
+        assert bool(changes) is invalidates
+        assert auth.status()["services"]["acorn"]["kind"] == kind.value
     finally:
         await auth.close()

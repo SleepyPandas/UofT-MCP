@@ -3,7 +3,12 @@
 from enum import StrEnum
 from typing import Any
 
-from uoft_mcp.status import ServiceReadError, classify_exception
+from uoft_mcp.status import (
+    ServiceReadError,
+    StatusKind,
+    classify_exception,
+    classify_route_failure,
+)
 from uoft_mcp.utilities.auth_browser import Service, classify_and_parse_response
 
 BASE_URL = "https://acorn.utoronto.ca/sws/rest"
@@ -47,6 +52,10 @@ async def request_acorn(api: Any, endpoint: AcornEndpoint) -> Any:
             service, response.status, response.headers, body
         )
         if result.state != "connected":
+            if result.kind is StatusKind.SERVICE_DOWN:
+                route = classify_route_failure("acorn", response.status, body)
+                if route is not None:
+                    raise AcornError.from_status(route)
             raise AcornError(result.message, result.state, result.kind)
         return payload
     except AcornError:
