@@ -14,6 +14,7 @@ response bodies, redirect URLs, cookies, or student records.
 | `login_in_progress` | `login_in_progress` | UofT login is in progress. Finish it in the browser window, then check uoft_auth_status. |
 | `access_denied` | `access_denied` | ACORN denied access (HTTP 403). Run uoft_login to sign in again; if it keeps happening, your account may not have access. |
 | `service_down` | `unavailable` | ACORN is down or not responding (HTTP 503). Try again later. |
+| `route_error` | `unavailable` | Degree Explorer returned a server error for this request (HTTP 500). Other reads may still work; try this one again later. |
 | `rate_limited` | `unavailable` | ACORN is busy and asked us to slow down (HTTP 429). Wait a minute, then try again. |
 | `network` | `unavailable` | Can't reach ACORN: no internet connection, or UofT servers can't be reached. Check your connection (or VPN) and try again. |
 | `page_changed` | `unexpected_response` | UofT changed the ACORN page, so the server couldn't read it (malformed JSON). Try again later; if it keeps happening, update uoft-mcp or report an issue. |
@@ -25,7 +26,10 @@ response bodies, redirect URLs, cookies, or student records.
 - **Signed out:** HTTP 401, a redirect to the UofT or Duo sign-in host, or a sign-in page
   where JSON was expected.
 - **Duo pending:** a login that timed out before the service was verified.
-- **Service down:** HTTP 408 or 5xx, a timeout, or a maintenance page.
+- **Service down:** HTTP 408 or 503, a timeout, or a maintenance page.
+- **Route error:** any other 5xx (such as HTTP 500) from one Degree Explorer or ACORN read.
+  The service is not declared down, its connection status stays as it was, and snapshots
+  from other reads in the same batch are kept.
 - **Rate limited:** HTTP 429.
 - **Network:** DNS, connection refused/reset, or no route to the host.
 - **Page changed:** an unexpected redirect, non-JSON content, malformed JSON, or JSON of an

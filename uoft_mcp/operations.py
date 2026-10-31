@@ -17,6 +17,8 @@ DIRECT_TOOLS = frozenset(
         "uoft_forget_session",
     }
 )
+# Upstream needs a cell selector that is not documented, so every call fails with HTTP 500.
+LEGACY_ONLY = frozenset({"degree_explorer_get_cell_details"})
 MAX_LIMIT = 25
 
 
@@ -69,7 +71,8 @@ class Registry:
             if handler.__name__ not in DIRECT_TOOLS:
                 if not options["annotations"].read_only_hint:
                     raise ValueError("Only read-only operations may enter the dispatcher.")
-                self.add(handler)
+                if profile == "legacy" or handler.__name__ not in LEGACY_ONLY:
+                    self.add(handler)
             if profile == "legacy" or handler.__name__ in DIRECT_TOOLS:
                 if handler.__name__ in DIRECT_TOOLS:
                     server.tool(**options)(handler)

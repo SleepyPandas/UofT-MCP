@@ -1,9 +1,10 @@
 # Degree Explorer read tools
 
-The default compact profile exposes nine Degree Explorer read operations through
-`uoft_read`. Find their schemas with `uoft_discover` using
-`service: "degree_explorer"` and `limit: 25` (the default limit of 5 shows only five
-of the nine). For example:
+The default compact profile exposes eight Degree Explorer read operations through
+`uoft_read`. `degree_explorer_get_cell_details` is legacy-only: without cell selectors
+its route returns HTTP 500, so compact discovery leaves it out. Find their schemas with
+`uoft_discover` using `service: "degree_explorer"` and `limit: 25` (the default limit
+of 5 shows only five of the eight). For example:
 
 ```json
 {"requests":[{"operation":"degree_explorer_get_academic_history"},
@@ -38,7 +39,7 @@ All routes below are relative to
 | `degree_explorer_get_messages` | UI string catalog for interpreting labels/message keys. This is not a student inbox. | `/messages/getMessages` |
 | `degree_explorer_get_session_timeouts` | Web-client timeout settings. These are not remaining session lifetime and do not extend login. | `/dxMenu/getSessionTimeouts` |
 | `degree_explorer_get_planner` | Existing planner timelines and primary-plan flags. Does not create, edit, select, or evaluate plans. | `/dxPlanner/getPlanner` |
-| `degree_explorer_get_cell_details` | Unparameterized planner popup read. Cell selectors are undocumented, so this cannot select a specific cell; it may return empty data or fail if UI context is required. | `/dxPlanner/getCellDetails` |
+| `degree_explorer_get_cell_details` | Unparameterized planner popup read. Cell selectors are undocumented, so this cannot select a specific cell; live testing returned HTTP 500 every time, reported as a server error for this request. Legacy profile only. | `/dxPlanner/getCellDetails` |
 
 The exact distinction and field schemas of the two Current Status payloads are not
 documented by the registry. The tools preserve them rather than invent a normalized

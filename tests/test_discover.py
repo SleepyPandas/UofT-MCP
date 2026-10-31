@@ -111,16 +111,16 @@ async def test_compact_acorn_query_lists_acorn_operations_first_and_counts_the_r
 
 
 @pytest.mark.anyio
-async def test_compact_degree_explorer_default_limit_reports_the_remaining_four():
+async def test_compact_degree_explorer_default_limit_reports_the_remaining_three():
     async with Client(create_server(tool_profile="compact")) as client:
         found = await call(client, "uoft_discover", {"query": "degree explorer"})
         assert len(found["operations"]) == 5
         assert all(op["service"] == "degree_explorer" for op in found["operations"])
-        assert (found["total"], found["more"], found["has_more"]) == (9, 4, True)
-        assert found["hint"] == "4 more matched. Raise limit or set service to see them."
+        assert (found["total"], found["more"], found["has_more"]) == (8, 3, True)
+        assert found["hint"] == "3 more matched. Raise limit or set service to see them."
         rest = await call(
             client,
             "uoft_discover",
             {"query": "degree explorer", "service": "degree_explorer", "limit": 25},
         )
-        assert len(rest["operations"]) == 9 and "hint" not in rest
+        assert len(rest["operations"]) == 8 and "hint" not in rest

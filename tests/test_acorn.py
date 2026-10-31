@@ -84,6 +84,9 @@ async def test_read_parses_large_payload_only_once():
         (403, {}, "SECRET", "access_denied", StatusKind.ACCESS_DENIED),
         (429, {}, "SECRET", "unavailable", StatusKind.RATE_LIMITED),
         (503, {}, "SECRET", "unavailable", StatusKind.SERVICE_DOWN),
+        (500, {}, "SECRET", "unavailable", StatusKind.ROUTE_ERROR),
+        (502, {}, "SECRET", "unavailable", StatusKind.ROUTE_ERROR),
+        (500, {}, "scheduled maintenance", "unavailable", StatusKind.SERVICE_DOWN),
         (404, {}, "SECRET", "unexpected_response", StatusKind.PAGE_CHANGED),
         (
             200,

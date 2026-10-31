@@ -49,8 +49,8 @@ whose name or service matches the most query words first (so `acorn` and `degree
 explorer` prefer those services' operations), then by words matched anywhere including
 the description, then by name. When `has_more` is true, `more` gives the number of
 matches not shown and `hint` says whether to raise `limit` (up to 25), set `service`, or
-narrow the query; for example, `{"service":"degree_explorer","limit":25}` lists all nine
-Degree Explorer operations. Descriptions show service and authentication
+narrow the query; for example, `{"service":"degree_explorer","limit":25}` lists all eight
+compact Degree Explorer operations. Descriptions show service and authentication
 requirements; schemas additionally include full documentation and the argument
 JSON Schema. These schemas describe operations inside `uoft_read`, not additional
 dynamically registered MCP tools. No client-specific tool-loading extension is needed.

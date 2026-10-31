@@ -55,6 +55,7 @@ class StatusKind(StrEnum):
     LOGIN_IN_PROGRESS = "login_in_progress"
     ACCESS_DENIED = "access_denied"
     SERVICE_DOWN = "service_down"
+    ROUTE_ERROR = "route_error"
     RATE_LIMITED = "rate_limited"
     NETWORK = "network"
     PAGE_CHANGED = "page_changed"
@@ -77,6 +78,7 @@ def legacy_state(kind: StatusKind) -> str:
             return "access_denied"
         case (
             StatusKind.SERVICE_DOWN
+            | StatusKind.ROUTE_ERROR
             | StatusKind.RATE_LIMITED
             | StatusKind.NETWORK
             | StatusKind.UNKNOWN
@@ -166,7 +168,7 @@ def describe(kind: StatusKind, service: str, detail: str | None = None) -> Statu
             summary = f"Duo sign-in pending or failed{target}."
             action = "Run uoft_login and approve the Duo prompt."
         case StatusKind.LOGIN_IN_PROGRESS:
-            summary = "UofT login is in progress."
+            summary = f"UofT login is in progress{extra}."
             action = "Finish it in the browser window, then check uoft_auth_status."
         case StatusKind.ACCESS_DENIED:
             summary = f"{name} denied access{extra}."
@@ -178,6 +180,9 @@ def describe(kind: StatusKind, service: str, detail: str | None = None) -> Statu
             )
         case StatusKind.SERVICE_DOWN:
             summary, action = f"{name} is down or not responding{extra}.", "Try again later."
+        case StatusKind.ROUTE_ERROR:
+            summary = f"{name} returned a server error for this request{extra}."
+            action = "Other reads may still work; try this one again later."
         case StatusKind.RATE_LIMITED:
             summary = f"{name} is busy and asked us to slow down{extra}."
             action = "Wait a minute, then try again."
@@ -227,6 +232,49 @@ def classify_http_status(service: str, status: int, where: str = "") -> Status |
 def looks_like_maintenance(body: str) -> bool:
     lower = body.lower()
     return any(marker in lower for marker in _MAINTENANCE_MARKERS)
+
+
+def classify_route_failure(service: str, status: int, body: str) -> Status | None:
+    """Describe a 5xx from one fixed read route as that route failing, not the service.
+
+    A 503 or a maintenance page still means the whole service is unavailable.
+    """
+    if status < 500 or status == 503 or looks_like_maintenance(body):
+        return None
+    return describe(StatusKind.ROUTE_ERROR, service, f"HTTP {status}")
+
+
+def invalidates_private_data(kind: StatusKind) -> bool:
+    """Whether recording this status may mean the signed-in identity changed.
+
+    Outages and rejected requests say nothing about who is signed in, so snapshots
+    fetched under the same session stay valid. Anything about authentication, and any
+    status that cannot be classified, discards them. An unexpected page or redirect is
+    one of those: a moved or unrecognised sign-in page surfaces as ``PAGE_CHANGED``.
+    """
+    match kind:
+        case (
+            StatusKind.SERVICE_DOWN
+            | StatusKind.ROUTE_ERROR
+            | StatusKind.RATE_LIMITED
+            | StatusKind.NETWORK
+            | StatusKind.REQUEST_REJECTED
+            | StatusKind.CONNECTED
+        ):
+            return False
+        case (
+            StatusKind.NOT_CHECKED
+            | StatusKind.SIGNED_OUT
+            | StatusKind.DUO_PENDING
+            | StatusKind.LOGIN_IN_PROGRESS
+            | StatusKind.ACCESS_DENIED
+            | StatusKind.PAGE_CHANGED
+            | StatusKind.UNKNOWN
+        ):
+            return True
+        case _:
+            unused: Never = kind
+            raise ValueError(f"Unhandled status kind: {unused}")
 
 
 def _is_timeout(exc: BaseException) -> bool:

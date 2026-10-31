@@ -2,14 +2,17 @@
 
 import asyncio
 import json
+from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
 from mcp import Client
 from test_auth import manager
 
-from uoft_mcp.acorn.client import AcornError
+from uoft_mcp.acorn.client import AcornEndpoint, AcornError
+from uoft_mcp.degree_explorer.client import DegreeExplorerEndpoint, request_degree_explorer
 from uoft_mcp.server import create_server
+from uoft_mcp.status import StatusKind, describe
 
 
 async def call(client, name, arguments):
@@ -42,7 +45,8 @@ async def test_discovery_surface_and_schema_savings():
                     "course_info",
                 }
                 all_ops = await call(client, "uoft_discover", {"detail": "names", "limit": 25})
-                assert len(all_ops["operations"]) == 21
+                assert len(all_ops["operations"]) == 20
+                assert "degree_explorer_get_cell_details" not in all_ops["operations"]
                 assert "save_timetable" not in all_ops["operations"]
                 exact = await call(
                     client,
@@ -107,6 +111,7 @@ async def test_batch_dedup_partial_failure_and_snapshot_paging():
     "bad",
     [
         {"operation": "save_timetable"},
+        {"operation": "degree_explorer_get_cell_details"},
         {"operation": "https://example.com"},
         {"operation": "get_course_details", "arguments": {"course_code": "../bad"}},
         {"operation": "get_current_sessions", "arguments": {"unexpected": 1}},
@@ -231,6 +236,104 @@ async def test_private_serialization_and_failure_invalidates_handles(tmp_path):
         )
         assert "error" in failed["results"][0]
         assert (await client.call_tool("uoft_result", {"handle": handle})).is_error
+
+
+@pytest.mark.anyio
+async def test_route_http_500_keeps_the_other_reads_of_a_degree_explorer_batch(tmp_path):
+    auth, backend = manager(tmp_path)
+    paths = []
+
+    async def get(url, **kwargs):
+        paths.append(url)
+        failing = url.endswith(DegreeExplorerEndpoint.PLANNER)
+        return Mock(
+            status=500 if failing else 200,
+            headers={"content-type": "application/json"},
+            text=AsyncMock(return_value="PRIVATE" if failing else json.dumps(["SYNTHETIC"])),
+            dispose=AsyncMock(),
+        )
+
+    api = Mock(get=get)
+
+    async def read(endpoint):
+        return await request_degree_explorer(api, endpoint)
+
+    backend.read_degree_explorer = read
+    async with Client(create_server(auth_factory=lambda: auth)) as client:
+        results = (
+            await call(
+                client,
+                "uoft_read",
+                {
+                    "requests": [
+                        {"operation": "degree_explorer_get_student_menu"},
+                        {"operation": "degree_explorer_get_planner"},
+                        {"operation": "degree_explorer_get_session_timeouts"},
+                    ]
+                },
+            )
+        )["results"]
+        assert len(paths) == 3
+        assert results[0]["data"] == ["SYNTHETIC"] and results[2]["data"] == ["SYNTHETIC"]
+        assert results[1]["error"] == (
+            "Degree Explorer returned a server error for this request (HTTP 500). "
+            "Other reads may still work; try this one again later."
+        )
+        assert "PRIVATE" not in json.dumps(results)
+        for item in (results[0], results[2]):
+            assert item["retained"]
+            kept = await call(client, "uoft_result", {"handle": item["handle"]})
+            assert kept["data"] == ["SYNTHETIC"]
+        assert auth.status()["services"]["degree_explorer"]["state"] == "connected"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "kind,preserved",
+    [
+        (StatusKind.ROUTE_ERROR, True),
+        (StatusKind.SERVICE_DOWN, True),
+        (StatusKind.RATE_LIMITED, True),
+        (StatusKind.NETWORK, True),
+        (StatusKind.SIGNED_OUT, False),
+        (StatusKind.ACCESS_DENIED, False),
+        (StatusKind.PAGE_CHANGED, False),
+    ],
+)
+async def test_batch_keeps_private_results_unless_authentication_failed(tmp_path, kind, preserved):
+    auth, backend = manager(tmp_path)
+
+    async def read(endpoint):
+        if endpoint is AcornEndpoint.STUDENT_REGISTRATION_INFO:
+            raise AcornError.from_status(describe(kind, "acorn"))
+        return {"courses": ["SYNTHETIC"]}
+
+    backend.read_acorn = read
+    async with Client(create_server(auth_factory=lambda: auth)) as client:
+        results = (
+            await call(
+                client,
+                "uoft_read",
+                {
+                    "requests": [
+                        {"operation": "acorn_get_eligible_registrations"},
+                        {"operation": "acorn_get_student_registration_info"},
+                        {"operation": "acorn_get_dashboard_courses"},
+                    ]
+                },
+            )
+        )["results"]
+        assert "error" in results[1]
+        for item in (results[0], results[2]):
+            if preserved:
+                assert item["data"] == {"courses": ["SYNTHETIC"]}
+                assert item["retained"]
+                assert not (
+                    await client.call_tool("uoft_result", {"handle": item["handle"]})
+                ).is_error
+            else:
+                assert "data" not in item and "handle" not in item
+                assert "Authentication changed" in item["error"]
 
 
 @pytest.mark.anyio
