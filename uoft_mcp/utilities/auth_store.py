@@ -5,60 +5,30 @@ import os
 import tempfile
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
 from cryptography.fernet import Fernet, InvalidToken
 from filelock import FileLock, Timeout
 from platformdirs import user_data_path
 
+from uoft_mcp.utilities.auth_keys import (  # noqa: F401  (re-exported for callers and tests)
+    KEY_ACCOUNT,
+    KEY_SERVICE,
+    FallbackKeyStore,
+    FileKeyStore,
+    KeyStore,
+    OSKeyStore,
+    SessionStoreError,
+    default_key_store,
+    restrict_to_current_user,
+)
+
+AUTH_DIR_ENV = "UOFT_MCP_AUTH_DIR"
 EMPTY_STATE: dict[str, Any] = {"cookies": [], "origins": []}
-KEY_SERVICE = "uoft-mcp"
-KEY_ACCOUNT = "browser-state-v1"
-
-
-class SessionStoreError(Exception):
-    """A sanitized, user-facing storage failure."""
 
 
 class SessionInUse(SessionStoreError):
     """Another local MCP owns authentication."""
-
-
-class KeyStore(Protocol):
-    def get(self) -> str | None: ...
-    def set(self, value: str) -> None: ...
-    def delete(self) -> None: ...
-
-
-class OSKeyStore:
-    """Use only the secure OS backends shipped by keyring, never plaintext plugins."""
-
-    def _backend(self):
-        import keyring
-
-        backend = keyring.get_keyring()
-        candidates = getattr(backend, "backends", [backend])
-        allowed = {
-            "keyring.backends.Windows",
-            "keyring.backends.macOS",
-            "keyring.backends.SecretService",
-            "keyring.backends.kwallet",
-        }
-        for candidate in candidates:
-            if type(candidate).__module__ in allowed and candidate.priority > 0:
-                return candidate
-        raise SessionStoreError("Secure OS storage is unavailable.")
-
-    def get(self) -> str | None:
-        return self._backend().get_password(KEY_SERVICE, KEY_ACCOUNT)
-
-    def set(self, value: str) -> None:
-        self._backend().set_password(KEY_SERVICE, KEY_ACCOUNT, value)
-
-    def delete(self) -> None:
-        backend = self._backend()
-        if backend.get_password(KEY_SERVICE, KEY_ACCOUNT) is not None:
-            backend.delete_password(KEY_SERVICE, KEY_ACCOUNT)
 
 
 def merge_api_cookies(browser_state: dict, api_state: dict) -> dict:
@@ -73,9 +43,11 @@ class SessionStore:
     """One OS account, one lock owner, one encrypted snapshot shared by both apps."""
 
     def __init__(self, directory: Path | None = None, keys: KeyStore | None = None):
-        self.directory = directory or user_data_path("uoft-mcp", appauthor=False) / "auth"
+        override = os.environ.get(AUTH_DIR_ENV)
+        explicit = directory or (Path(override).expanduser() if override else None)
+        self.directory = explicit or user_data_path("uoft-mcp", appauthor=False) / "auth"
         self.path = self.directory / "session.enc"
-        self.keys = keys or OSKeyStore()
+        self.keys = keys or default_key_store(explicit)
         self._lock = FileLock(self.directory / "session.lock", thread_local=False)
         self._owned = False
         self.persistent = False
@@ -85,9 +57,16 @@ class SessionStore:
         if self._owned:
             return
         try:
+            created = not self.directory.exists()
             self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
             if os.name != "nt":
                 self.directory.chmod(0o700)
+            elif created:  # Windows has no chmod; ACL it once, on creation.
+                try:
+                    # Best effort: key files are ACL-restricted individually and strictly.
+                    restrict_to_current_user(self.directory, directory=True)
+                except SessionStoreError:
+                    pass
             self._lock.acquire(timeout=0)
         except Timeout:
             raise SessionInUse(
