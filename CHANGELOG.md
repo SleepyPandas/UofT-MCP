@@ -63,6 +63,7 @@
 - `plan_timetable` shows each chosen section's enrolment (`37/37 enrolled, FULL,
   waitlist 3`) and warns about every full section, noting that seat counts are a
   snapshot.
+- `plan_timetable` accepts UTSC course codes such as `CSCA08H3`.
 
 ## 0.6.0 — 2026-09-20
 
