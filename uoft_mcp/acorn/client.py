@@ -3,9 +3,11 @@
 from enum import StrEnum
 from typing import Any
 
+from uoft_mcp.status import ServiceReadError, classify_exception
 from uoft_mcp.utilities.auth_browser import Service, classify_and_parse_response
 
 BASE_URL = "https://acorn.utoronto.ca/sws/rest"
+TIMEOUT_MS = 30_000
 
 
 class AcornEndpoint(StrEnum):
@@ -18,12 +20,8 @@ class AcornEndpoint(StrEnum):
         return list if self is AcornEndpoint.ELIGIBLE_REGISTRATIONS else dict
 
 
-class AcornError(Exception):
+class AcornError(ServiceReadError):
     """Sanitized failure with an authentication status, never an upstream body."""
-
-    def __init__(self, message: str, state: str = "unexpected_response"):
-        super().__init__(message)
-        self.state = state
 
 
 async def request_acorn(api: Any, endpoint: AcornEndpoint) -> Any:
@@ -39,7 +37,7 @@ async def request_acorn(api: Any, endpoint: AcornEndpoint) -> Any:
         response = await api.get(
             BASE_URL + endpoint,
             headers={"Accept": "application/json"},
-            timeout=30_000,
+            timeout=TIMEOUT_MS,
             max_redirects=0,
         )
         body = await response.text()
@@ -49,18 +47,13 @@ async def request_acorn(api: Any, endpoint: AcornEndpoint) -> Any:
             service, response.status, response.headers, body
         )
         if result.state != "connected":
-            raise AcornError(
-                f"ACORN {endpoint} (HTTP {response.status}): {result.message}",
-                result.state,
-            )
+            raise AcornError(result.message, result.state, result.kind)
         return payload
     except AcornError:
         raise
-    except Exception:
-        raise AcornError(
-            f"Could not read ACORN {endpoint}; request failed or timed out "
-            "(30-second timeout). Try again later.",
-            "unavailable",
+    except Exception as exc:
+        raise AcornError.from_status(
+            classify_exception(exc, "acorn", timeout_seconds=TIMEOUT_MS / 1000)
         ) from None
     finally:
         if response is not None:

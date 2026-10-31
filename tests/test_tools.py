@@ -364,7 +364,7 @@ async def test_save_timetable_rejects_missing_share_id():
         (404, "HTTP 404"),
         (500, "HTTP 500"),
         ("timeout", "timed out after 30 seconds"),
-        ("connection", "Could not reach"),
+        ("connection", "Can't reach Timetable Builder"),
         ("json", "invalid JSON"),
     ],
 )

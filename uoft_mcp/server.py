@@ -23,6 +23,7 @@ from uoft_mcp.compact import register_compact
 from uoft_mcp.degree_explorer.client import DegreeExplorerEndpoint, DegreeExplorerError
 from uoft_mcp.operations import Registry
 from uoft_mcp.results import ResultStore
+from uoft_mcp.status import StatusKind, describe
 from uoft_mcp.timetable_builder.client import TimetableAPIError, create_http_client, request_json
 from uoft_mcp.utilities.auth import AuthManager
 from uoft_mcp.utilities.auth_browser import ServiceChoice
@@ -452,7 +453,11 @@ def create_server(
             ctx, "POST", "tiny/shorten", content=encoded, content_type="text/plain"
         )
         if not isinstance(data, dict) or not isinstance(data.get("id"), str) or not data["id"]:
-            raise ToolError("UofT timetable API did not return a share id at tiny/shorten.")
+            raise ToolError(
+                describe(
+                    StatusKind.PAGE_CHANGED, "timetable", "no share id returned by tiny/shorten"
+                ).message
+            )
         return json.dumps(
             {**data, "share_url": f"{TTB_ORIGIN}/#!/?t={data['id']}"},
             ensure_ascii=False,
@@ -618,6 +623,7 @@ def create_server(
 
         refresh=True checks both services using saved cookies; it never opens a login window.
         A saved cookie is not proof of a valid session. last_verified is historical, not expiry.
+        Each service reports a plain-language message, a kind, and a next_action.
         """
         auth = ctx.request_context.lifespan_context.auth
         result = await auth.refresh() if refresh else auth.status()

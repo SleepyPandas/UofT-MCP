@@ -7,6 +7,13 @@ from typing import Any
 
 from uoft_mcp.acorn.client import AcornEndpoint, AcornError
 from uoft_mcp.degree_explorer.client import DegreeExplorerEndpoint, DegreeExplorerError
+from uoft_mcp.status import (
+    StatusKind,
+    classify_exception,
+    describe,
+    kind_for_state,
+    legacy_state,
+)
 from uoft_mcp.utilities.auth_browser import (
     SERVICES,
     BrowserClosed,
@@ -66,10 +73,25 @@ class AuthManager:
         }
         self._login = {"state": "idle", "message": "Use uoft_login to connect.", "services": []}
 
+    def _plain_services(self) -> dict:
+        """Add each service's status kind and next step to its existing fields."""
+        services = {}
+        for name, value in self._services.items():
+            kind = value.get("kind")
+            if kind is None or legacy_state(StatusKind(kind)) != value["state"]:
+                kind = kind_for_state(value["state"])
+            kind = StatusKind(kind)
+            services[name] = {
+                **value,
+                "kind": kind.value,
+                "next_action": describe(kind, name).next_action,
+            }
+        return services
+
     def status(self) -> dict:
         return deepcopy(
             {
-                "services": self._services,
+                "services": self._plain_services(),
                 "login": self._login,
                 "persistence": {
                     "requested": self._remember,
@@ -101,7 +123,11 @@ class AuthManager:
     def _record(self, name: str, result: ProbeResult) -> None:
         if result.state != "connected":
             self.on_session_change()
-        self._services[name].update(state=result.state, message=result.message)
+        self._services[name].update(
+            state=result.state,
+            message=result.message,
+            kind=(result.kind or kind_for_state(result.state)).value,
+        )
         if result.state == "connected":
             self._services[name]["last_verified"] = datetime.now(UTC).isoformat()
 
@@ -158,9 +184,16 @@ class AuthManager:
                 await self._close_backend()
                 raise
             except TimeoutError:
-                self._login.update(
-                    state="timed_out", message="Login timed out; run uoft_login to retry."
-                )
+                duo = describe(StatusKind.DUO_PENDING, "")
+                self._login.update(state="timed_out", message=duo.message)
+                for name in names:
+                    if self._services[name]["state"] == "login_required":
+                        self._record(
+                            name,
+                            ProbeResult(
+                                duo.state, describe(StatusKind.DUO_PENDING, name).message, duo.kind
+                            ),
+                        )
                 await self._close_backend()
             except BrowserClosed as exc:
                 self._login.update(state="cancelled", message=str(exc))
@@ -234,9 +267,8 @@ class AuthManager:
         if not isinstance(endpoint, DegreeExplorerEndpoint):
             raise DegreeExplorerError("Unsupported Degree Explorer endpoint.")
         if self._task is not None and not self._task.done():
-            raise DegreeExplorerError(
-                "UofT login is in progress. Check uoft_auth_status before retrying.",
-                "login_in_progress",
+            raise DegreeExplorerError.from_status(
+                describe(StatusKind.LOGIN_IN_PROGRESS, "degree_explorer")
             )
         async with self._operation:
             try:
@@ -244,11 +276,13 @@ class AuthManager:
                 try:
                     data = await self._backend.read_degree_explorer(endpoint)
                 except DegreeExplorerError as exc:
-                    self._record("degree_explorer", ProbeResult(exc.state, str(exc)))
+                    self._record("degree_explorer", ProbeResult(exc.state, str(exc), exc.kind))
                     raise
                 else:
+                    connected = describe(StatusKind.CONNECTED, "degree_explorer")
                     self._record(
-                        "degree_explorer", ProbeResult("connected", "Connection verified.")
+                        "degree_explorer",
+                        ProbeResult(connected.state, connected.message, connected.kind),
                     )
                     return data
                 finally:
@@ -258,12 +292,10 @@ class AuthManager:
             except (BrowserError, SessionStoreError) as exc:
                 await self._close_backend()
                 raise DegreeExplorerError(str(exc), "unavailable") from None
-            except Exception:
+            except Exception as exc:
                 await self._close_backend()
-                raise DegreeExplorerError(
-                    "Could not read Degree Explorer using the local session. "
-                    "Check uoft_auth_status before retrying.",
-                    "unavailable",
+                raise DegreeExplorerError.from_status(
+                    classify_exception(exc, "degree_explorer")
                 ) from None
 
     async def read_acorn(self, endpoint: AcornEndpoint) -> Any:
@@ -275,20 +307,20 @@ class AuthManager:
         if not isinstance(endpoint, AcornEndpoint):
             raise AcornError("Unsupported ACORN endpoint.")
         if self._task is not None and not self._task.done():
-            raise AcornError(
-                "UofT login is in progress. Check uoft_auth_status before retrying.",
-                "login_in_progress",
-            )
+            raise AcornError.from_status(describe(StatusKind.LOGIN_IN_PROGRESS, "acorn"))
         async with self._operation:
             try:
                 await self._ensure_open(self._remember)
                 try:
                     data = await self._backend.read_acorn(endpoint)
                 except AcornError as exc:
-                    self._record("acorn", ProbeResult(exc.state, str(exc)))
+                    self._record("acorn", ProbeResult(exc.state, str(exc), exc.kind))
                     raise
                 else:
-                    self._record("acorn", ProbeResult("connected", "Connection verified."))
+                    connected = describe(StatusKind.CONNECTED, "acorn")
+                    self._record(
+                        "acorn", ProbeResult(connected.state, connected.message, connected.kind)
+                    )
                     return data
                 finally:
                     await self._checkpoint()
@@ -297,13 +329,9 @@ class AuthManager:
             except (BrowserError, SessionStoreError) as exc:
                 await self._close_backend()
                 raise AcornError(str(exc), "unavailable") from None
-            except Exception:
+            except Exception as exc:
                 await self._close_backend()
-                raise AcornError(
-                    "Could not read ACORN using the local session. "
-                    "Check uoft_auth_status before retrying.",
-                    "unavailable",
-                ) from None
+                raise AcornError.from_status(classify_exception(exc, "acorn")) from None
 
     async def wait_for_login(self) -> dict:
         """Used by the terminal and tests; MCP login itself never waits for Duo."""

@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from uoft_mcp.operations import Registry
 from uoft_mcp.results import ResultError, Selection, encode, view
+from uoft_mcp.status import classify_exception
 
 READ = ToolAnnotations(
     read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=True
@@ -75,8 +76,8 @@ def register_compact(server, registry: Registry) -> None:
                 return data, handle, retrieved_at, warning
             except (ToolError, ResultError) as exc:
                 return {"error": str(exc)}
-            except Exception:
-                return {"error": "Read failed. Check connection status and retry explicitly."}
+            except Exception as exc:
+                return {"error": classify_exception(exc, operation.service).message}
 
         keys = []
         for operation, arguments, serialized in validated:
