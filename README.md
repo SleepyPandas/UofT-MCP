@@ -24,36 +24,98 @@ account record.
 Read the [release notes](CHANGELOG.md) for the current version's scope and known
 limitations.
 
-## Connect an MCP Client
+## Install in 1 minute
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then add this
-configuration to any client that supports `mcpServers`:
+You need an MCP client (Cursor, Claude Desktop, Claude Code, ...) and an internet connection.
+The installer sets up [uv](https://docs.astral.sh/uv/) if it is missing, installs the
+`uoft-mcp` command, and prints the exact configuration to paste. It needs no admin rights,
+is safe to re-run (re-running upgrades), and is covered by CI on macOS, Linux, and Windows.
+
+### 1. Install
+
+**macOS and Linux** (Terminal):
+
+```sh
+curl -LsSf https://raw.githubusercontent.com/SleepyPandas/UofT-MCP/master/install.sh | sh
+```
+
+**Windows** (PowerShell, not `cmd`):
+
+```powershell
+irm https://raw.githubusercontent.com/SleepyPandas/UofT-MCP/master/install.ps1 | iex
+```
+
+Prefer to do it yourself? If you already have uv, this is the whole install
+(`uv tool upgrade uoft-mcp` updates it, `uv tool uninstall uoft-mcp` removes it):
+
+```sh
+uv tool install uoft-mcp
+uoft-mcp doctor
+```
+
+By default the scripts install the latest published release. To follow the unreleased
+`master` branch, set `UOFT_MCP_SOURCE=git+https://github.com/SleepyPandas/UofT-MCP` first
+(`$env:UOFT_MCP_SOURCE = "..."` in PowerShell). Read the scripts before running them:
+[install.sh](install.sh), [install.ps1](install.ps1).
+
+### 2. Add it to your MCP client
+
+The installer ends by printing a JSON block like this one with the absolute path for your
+machine. You can print it again at any time with `uoft-mcp doctor`.
 
 ```json
 {
   "mcpServers": {
-    "uoft-timetable": {
-      "command": "uvx",
-      "args": ["uoft-mcp@latest"],
-      "env": {
-        "UV_HTTP_TIMEOUT": "300"
-      }
+    "uoft": {
+      "command": "/Users/you/.local/bin/uoft-mcp"
     }
   }
 }
 ```
 
-Restart the client after saving its configuration. On Windows, if the client cannot
-find `uvx`, restart it after installing uv or replace `"uvx"` with the absolute path
-reported by `where.exe uvx`.
+On Windows the command looks like `C:\\Users\\you\\.local\\bin\\uoft-mcp.exe`; paste the
+printed value rather than typing it.
 
-`uvx` downloads the published package into an isolated environment and starts the
-`uoft-mcp` command. No repository clone, virtual environment setup, API key, server
-URL, or listening port is needed. The first start can take longer while uv downloads
-Python and the dependencies; later starts use its cache.
+| Client | Where it goes |
+| --- | --- |
+| Cursor | `~/.cursor/mcp.json` (all projects) or `.cursor/mcp.json` (one project), or **Settings > MCP > Add new MCP server** |
+| Claude Desktop | **Settings > Developer > Edit Config**: `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS, `%APPDATA%\Claude\claude_desktop_config.json` on Windows |
+| Claude Code | `claude mcp add uoft -- /path/printed/by/uoft-mcp-doctor` |
 
-To pin a release instead of following the newest release, use
-`"args": ["uoft-mcp==0.6.0"]`.
+If the file already has an `mcpServers` object, add only the `"uoft": { ... }` entry to it.
+Fully restart the client afterwards.
+
+### 3. Sign in the first time (optional)
+
+Timetable tools work immediately with no login. To read ACORN and Degree Explorer, download
+the sign-in browser once, then ask your assistant to connect:
+
+```sh
+uoft-mcp auth setup
+```
+
+Then say **"Connect my UofT account to Degree Explorer and ACORN."** and finish the official
+UofT login and Duo prompt in the Chromium window that opens. Passwords and Duo codes belong
+only on UofT's pages, never in chat or config. Your login is encrypted locally and reused
+across restarts; see [AUTHENTICATION.md](AUTHENTICATION.md) for details. Setting
+`UOFT_MCP_WITH_BROWSER=1` when running the installer downloads the browser for you.
+
+### Troubleshooting
+
+- **`uoft-mcp` or `uv` is "not found" in a new terminal.** Run `uv tool update-shell` and open
+  a new terminal. MCP clients are unaffected because the config uses the full path.
+- **The client shows the server as failed or missing tools.** Run `uoft-mcp doctor`, paste its
+  JSON again (check the path and quotes), then fully quit and reopen the client. On Windows,
+  use double backslashes in JSON paths.
+- **First start or install is slow or times out.** uv is downloading Python and dependencies
+  once. Re-run the installer (it sets `UV_HTTP_TIMEOUT=300`) or retry on a better connection.
+- **Sign-in says Chromium is missing, or Linux cannot open a browser.** Run
+  `uoft-mcp auth setup`. Desktop Linux may also need Playwright's system libraries installed by
+  an administrator; see [AUTHENTICATION.md](AUTHENTICATION.md).
+
+Prefer not to install anything permanently? Run it on demand with `uvx uoft-mcp@latest` as the
+client command (`"command": "uvx", "args": ["uoft-mcp@latest"]`). To pin a release use
+`"uoft-mcp==0.6.0"`. No API key, server URL, or listening port is ever needed.
 
 ## Local Development
 
@@ -276,6 +338,8 @@ uv run --locked ruff format --check .
 The [PR workflow](.github/workflows/tests.yml) runs these checks on pull requests
 targeting `main` or `master`, using Python 3.13 on Ubuntu. New commits cancel an
 older run for the same PR. Tests need no Chromium installation or UofT credentials.
+The [install workflow](.github/workflows/install.yml) also runs the install scripts, a stdio
+smoke test of the installed command, the tests, and lint on Ubuntu, macOS, and Windows.
 
 The tests run offline. They cover the twenty-five legacy tools and seven compact tools, request mapping, raw JSON
 preservation, validation, HTTP errors, timeouts, connection errors, invalid JSON,
@@ -311,7 +375,8 @@ uoft_mcp/
 ├── acorn/              # allowlisted ACORN reads and field selection
 ├── utilities/          # shared authentication, browser, and secure session storage
 ├── server.py           # MCP tool registration and application wiring
-└── cli.py              # stdio server and terminal authentication commands
+├── cli.py              # stdio server and terminal authentication commands
+└── doctor.py           # `uoft-mcp doctor`: install check and client config
 ```
 
 - The supplied [Timetable Builder reference](uoft_mcp/timetable_builder/reference.json) remains the original

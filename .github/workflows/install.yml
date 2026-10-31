@@ -1,0 +1,107 @@
+name: Install and Cross-Platform
+
+on:
+  pull_request:
+    branches: [main, master]
+    types: [opened, reopened, synchronize]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  install-script:
+    name: Install script (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    env:
+      # Test the checked-out code instead of the published package.
+      UOFT_MCP_SOURCE: ${{ github.workspace }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      # Deliberately no setup-uv: the scripts must bootstrap uv themselves when it is missing.
+
+      - name: Lint install.sh
+        if: runner.os == 'Linux'
+        run: shellcheck --shell=sh install.sh
+
+      - name: Run install.sh (twice, to prove it is idempotent)
+        if: runner.os != 'Windows'
+        run: |
+          sh install.sh
+          sh install.sh
+
+      - name: Run install.ps1 in Windows PowerShell 5.1 (twice)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          .\install.ps1
+          .\install.ps1
+
+      - name: Run install.ps1 the way the one-liner does, in PowerShell 7
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Get-Content -Raw .\install.ps1 | Invoke-Expression
+
+      - name: Put uv on PATH for later steps
+        shell: bash
+        run: |
+          bin="$HOME/.local/bin"
+          if [ "$RUNNER_OS" = "Windows" ]; then bin="$(cygpath -w "$bin")"; fi
+          echo "$bin" >> "$GITHUB_PATH"
+
+      - name: Smoke-test the installed command
+        shell: bash
+        run: |
+          exe="$(uv tool dir --bin)/uoft-mcp"
+          [ "$RUNNER_OS" = "Windows" ] && exe="${exe}.exe"
+          "$exe" --help
+          "$exe" doctor --command "$exe"
+          python scripts/smoke_stdio.py "$exe"
+
+      - name: Uninstall and confirm it is gone
+        shell: bash
+        run: |
+          uv tool uninstall uoft-mcp
+          if uv tool list | grep -q '^uoft-mcp'; then echo "uoft-mcp still installed"; exit 1; fi
+
+  tests:
+    name: Tests and lint (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+
+      - name: Install Python
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync --locked --managed-python
+
+      - name: Run tests
+        run: uv run --locked pytest -q
+
+      - name: Run lint and format checks
+        run: |
+          uv run --locked ruff check .
+          uv run --locked ruff format --check .

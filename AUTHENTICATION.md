@@ -63,8 +63,29 @@ expiration time. An outage or access denial does not erase the other app's sessi
 
 Each process starts with `not_checked` until a connection check succeeds. Cookies
 on disk do not prove that UofT still accepts the login. When authentication expires,
-explicitly run Login again. It checks saved sessions before opening the browser.
-There is no periodic keepalive or automatic Duo retry loop.
+run Login again. It checks saved sessions before opening the browser. See
+[Quiet renewal](#quiet-renewal-without-duo) for what happens before that point.
+There is no periodic background keepalive or automatic Duo retry loop.
+
+## Quiet renewal without Duo
+
+Sign in once; later calls try to stay signed in without you. When a read, a status
+check, or Login finds that a service reports `login_required` while cookies are
+saved, the MCP first re-validates them through UofT SSO in a hidden (headless)
+Chromium: it opens the service with the saved cookies and browser user agent and
+lets UofT's normal redirects renew the application session. It never types
+credentials and cannot satisfy Duo. If the service is reachable afterward, the
+renewed cookies are saved to the encrypted store and a read is retried once;
+otherwise nothing changes and you get the usual reconnect instruction. Reaching
+the credential or Duo page ends the attempt immediately.
+
+Only a real end of the SSO session (for example UofT's remembered-device window
+closing, or an Enhanced application's fresh-MFA rule) requires a new interactive
+Login with Duo. Failed quiet attempts are rate limited to one per service per
+minute for reads and status checks, so an ended session does not start a browser on
+every call; an explicit Login always retries first. Cookies rotated by ordinary
+reads and checks are saved too. Quiet renewal needs the Chromium installed by
+`auth setup` and does not run while a visible login is open.
 
 UofT's current [MFA FAQ](https://security.utoronto.ca/services/utormfa/faqs/)
 describes 24-hour remembered-device support for Standard applications and fresh
@@ -91,6 +112,35 @@ Sessions belong to the OS user running the MCP. Treat your OS account and its
 credential store as the security boundary; this is not protection against programs
 already running with that account's access.
 
+### Where the encryption key lives
+
+The key is a random Fernet key, chosen in this order:
+
+1. **OS keyring** (service `uoft-mcp`), as above.
+2. **Key file** when no secure keyring backend exists at all, such as headless Linux
+   without a Secret Service. The file `session.key` is under the per-user config
+   directory (Windows `%LOCALAPPDATA%\uoft-mcp`, macOS `~/Library/Application
+   Support/uoft-mcp`, Linux `${XDG_CONFIG_HOME:-~/.config}/uoft-mcp`), separate from
+   `session.enc`. It is created as `0600` in a `0700` directory on POSIX; a loosened
+   file is tightened on read, and one owned by another user is refused. On Windows
+   the ACL is replaced with a single entry for your account (no inheritance); if
+   that cannot be set, the key is not written and the session stays memory-only.
+
+A keyring that exists but is locked or failing is **not** replaced by a key file;
+the session stays memory-only until it is unlocked, so a stored key is never
+shadowed. If a key file is damaged, or `session.enc` is corrupted, truncated, or
+encrypted with a different key, the store is treated as signed out and the next
+login replaces it. It never raises to the caller. Treat a key file like an SSH
+private key: whoever can read both files can read the session.
+
+Environment overrides (set before starting the MCP):
+
+| Variable | Effect |
+| --- | --- |
+| `UOFT_MCP_AUTH_DIR` | Directory for `session.enc` and its lock. Unless `UOFT_MCP_KEY_FILE` is set, a key file then lives beside it. |
+| `UOFT_MCP_KEY_FILE` | Exact path of the fallback key file. |
+| `UOFT_MCP_DISABLE_KEYRING` | Any non-empty value skips the OS keyring and always uses the key file. |
+
 If secure storage is missing or locked, status explicitly reports a memory-only
 session. Such a session works while the MCP runs but cannot be restored after it
 stops. To intentionally start a fresh memory-only login:
@@ -107,6 +157,9 @@ wanting to remove the previous saved identity.
 ```powershell
 uv run --locked python -m uoft_mcp auth forget
 ```
+
+`auth logout` is an alias. Both remove `session.enc`, the keyring key, and any key
+file.
 
 `uoft_forget_session({})` does the same: cancel login, close managed authentication
 resources, remove local saved state, and delete the encryption key for both apps.

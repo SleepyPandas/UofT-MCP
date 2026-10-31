@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
@@ -45,6 +46,9 @@ SERVICES = {
         list,
     ),
 }
+
+
+CREDENTIAL_PROMPT = 'input[type="password"], iframe[src*="duosecurity.com"], #duo_iframe'
 
 
 class BrowserError(Exception):
@@ -149,9 +153,12 @@ class PlaywrightSession:
             raise BrowserError("Could not start authentication. Run: uoft-mcp auth setup") from None
 
     async def probe(self, service: Service) -> ProbeResult:
+        return await self._probe(self.api, service)
+
+    async def _probe(self, api: Any, service: Service) -> ProbeResult:
         response = None
         try:
-            response = await self.api.get(
+            response = await api.get(
                 service.probe_url,
                 headers={"Accept": "application/json"},
                 timeout=15_000,
@@ -169,6 +176,67 @@ class PlaywrightSession:
                     await response.dispose()
                 except Exception:
                     pass
+
+    async def silent_refresh(self, service: Service, wait_seconds: float = 20.0) -> ProbeResult:
+        """Re-validate saved cookies through UofT SSO in a hidden browser; never prompts.
+
+        An app session that lapsed while the SSO session lives is renewed by the
+        redirect chain, which needs a browser to run its auto-submitted forms. If SSO
+        itself ended, the browser stops on the credential page and this reports
+        `login_required`; no credentials or Duo are ever entered here.
+        """
+        if self.context is not None or self.api is None:
+            return ProbeResult("login_required", "Interactive login is in progress.")
+        browser = context = None
+        try:
+            state = await self.snapshot()
+            browser = await self.playwright.chromium.launch(headless=True)
+            context = await browser.new_context(**self._context_options(state))
+            page = await context.new_page()
+            await page.goto(service.app_url, wait_until="domcontentloaded", timeout=30_000)
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + wait_seconds
+            result = ProbeResult("login_required", "Saved session could not be renewed.")
+            while loop.time() < deadline:
+                if self._at_service(page.url, service):
+                    # Redirects and cookies may still be settling; only a failure to
+                    # reach a login page is final, so keep polling until the deadline.
+                    result = await self._probe(context.request, service)
+                    if result.state not in {"login_required", "unexpected_response"}:
+                        break
+                elif await page.query_selector(CREDENTIAL_PROMPT):
+                    return result  # SSO ended: a person must sign in; stop waiting.
+                await asyncio.sleep(1.0)
+            if result.state != "connected":
+                return result
+            renewed = await context.storage_state()
+            if self.user_agent:
+                renewed["user_agent"] = self.user_agent
+            await self.api.dispose()
+            self.api = await self.playwright.request.new_context(**self._context_options(renewed))
+            return result
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            return ProbeResult("unavailable", "Could not renew the saved session.")
+        finally:
+            for resource in (context, browser):
+                if resource is not None:
+                    try:
+                        await resource.close()
+                    except Exception:
+                        pass
+
+    @staticmethod
+    def _at_service(url: str, service: Service) -> bool:
+        parts = urlsplit(url)
+        return (
+            parts.scheme == "https"
+            and parts.hostname == urlsplit(service.app_url).hostname
+            and parts.path.startswith(
+                "/degreeExplorer" if service.name == "degree_explorer" else "/sws"
+            )
+        )
 
     async def read_degree_explorer(self, endpoint: DegreeExplorerEndpoint) -> Any:
         """Read one allowlisted route without opening a browser or following SSO."""
@@ -218,14 +286,7 @@ class PlaywrightSession:
     async def on_service(self, service: Service) -> bool:
         if self.page.is_closed() or not self.browser.is_connected():
             raise BrowserClosed("Login window closed. Run uoft_login to try again.")
-        url = urlsplit(self.page.url)
-        return (
-            url.scheme == "https"
-            and url.hostname == urlsplit(service.app_url).hostname
-            and url.path.startswith(
-                "/degreeExplorer" if service.name == "degree_explorer" else "/sws"
-            )
-        )
+        return self._at_service(self.page.url, service)
 
     async def finish_browser(self, state: dict) -> None:
         """Close after the manager's final checkpoint and reuse that captured state."""
