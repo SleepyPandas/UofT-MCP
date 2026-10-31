@@ -46,6 +46,15 @@
   `timetable_builder/generation.py` and `timetable_builder/client.py`; `generate_timetable`
   and `save_timetable` behave exactly as before.
 
+### Fixed
+
+- Course cards no longer hide enrolment instructions: course notes keep up to 1,500
+  characters (was 400), and anything cut or dropped is marked with how much was omitted.
+- `lectures_full` on course cards and search rows is now derived from the lecture
+  enrolment counts instead of copying upstream's `primaryFull`, which can say a course
+  has seats when every lecture is full. When the two disagree the row also carries
+  `upstream_lectures_full`.
+
 ## 0.6.0 — 2026-09-20
 
 ### Changed
