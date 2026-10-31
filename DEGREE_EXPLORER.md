@@ -2,7 +2,8 @@
 
 The default compact profile exposes nine Degree Explorer read operations through
 `uoft_read`. Find their schemas with `uoft_discover` using
-`service: "degree_explorer"`. For example:
+`service: "degree_explorer"` and `limit: 25` (the default limit of 5 shows only five
+of the nine). For example:
 
 ```json
 {"requests":[{"operation":"degree_explorer_get_academic_history"},
