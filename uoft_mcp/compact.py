@@ -9,7 +9,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from uoft_mcp.operations import Registry
+from uoft_mcp.operations import MAX_LIMIT, Registry
 from uoft_mcp.results import ResultError, Selection, encode, view
 from uoft_mcp.status import classify_exception
 
@@ -31,7 +31,7 @@ def register_compact(server, registry: Registry) -> None:
         query: str = "",
         service: Literal["timetable", "degree_explorer", "acorn"] | None = None,
         detail: Literal["names", "descriptions", "schemas"] = "descriptions",
-        limit: Annotated[int, Field(ge=1, le=25)] = 5,
+        limit: Annotated[int, Field(ge=1, le=MAX_LIMIT)] = 5,
     ) -> str:
         """Find read operations locally; request schemas before calling unfamiliar operations."""
         return encode(registry.discover(query, service, detail, limit))
