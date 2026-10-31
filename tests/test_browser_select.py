@@ -10,6 +10,7 @@ from uoft_mcp.utilities.browser_select import (
     BROWSER_ENV,
     BrowserUnavailable,
     browser_order,
+    detect_system_browser,
     launch_browser,
     requested_browser,
     system_browser_path,
@@ -280,3 +281,14 @@ def test_posix_detection_uses_the_fixed_install_location(name, platform, locatio
 
 def test_unsupported_platform_has_no_system_browser():
     assert system_browser_path("chrome", "freebsd", {}, lambda path: True) is None
+
+
+def test_detect_follows_launch_order_and_skips_chromium():
+    edge = "/opt/microsoft/msedge/msedge"
+    chrome = "/opt/google/chrome/chrome"
+    both = fake_exists(edge, chrome)
+    assert detect_system_browser("auto", "linux", {}, both) == "chrome"
+    assert detect_system_browser("auto", "linux", {}, fake_exists(edge)) == "msedge"
+    assert detect_system_browser("msedge", "linux", {}, fake_exists(chrome)) is None
+    assert detect_system_browser("chromium", "linux", {}, both) is None
+    assert detect_system_browser("auto", "linux", {}, lambda path: False) is None

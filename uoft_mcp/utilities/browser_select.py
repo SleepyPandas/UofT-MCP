@@ -107,6 +107,26 @@ def system_browser_path(
     return None
 
 
+def detect_system_browser(
+    choice: BrowserChoice,
+    platform: str | None = None,
+    env: Mapping[str, str] | None = None,
+    exists: Callable[[Path], bool] = Path.is_file,
+) -> Literal["msedge", "chrome"] | None:
+    """The installed Edge or Chrome that sign-in would pick for this choice, if any."""
+    for name in browser_order(choice, platform):
+        match name:
+            case "msedge" | "chrome":
+                if system_browser_path(name, platform, env, exists) is not None:
+                    return name
+            case "chromium":
+                pass
+            case _:
+                unused: Never = name
+                raise ValueError(f"Unhandled browser: {unused}")
+    return None
+
+
 def no_browser_message(choice: BrowserChoice) -> str:
     match choice:
         case "auto":
@@ -116,12 +136,12 @@ def no_browser_message(choice: BrowserChoice) -> str:
             )
         case "msedge" | "chrome":
             return (
-                f"{browser_label(choice)} could not be started, and {BROWSER_ENV} is set to it. "
+                f"{browser_label(choice)} is not available, and {BROWSER_ENV} is set to it. "
                 f"Install it, or unset {BROWSER_ENV} to use another browser."
             )
         case "chromium":
             return (
-                f"Chromium could not be started, and {BROWSER_ENV} is set to it. "
+                f"Chromium is not available, and {BROWSER_ENV} is set to it. "
                 "Run: uoft-mcp auth setup"
             )
         case _:
