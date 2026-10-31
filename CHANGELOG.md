@@ -12,6 +12,26 @@
 - Quiet renewal checks, without a browser, whether the service demands a fresh sign-in
   and stops at once when it does, instead of starting a hidden browser that can only
   reach the UofT login page.
+- `degree_explorer_get_cell_details` is no longer a compact `uoft_read` operation. Without
+  cell selectors its route answered HTTP 500 on every call in live testing, so discovery
+  now lists 20 operations instead of 21. The legacy profile still has the tool.
+- A 5xx from one Degree Explorer or ACORN read (other than 503 or a maintenance page) is
+  now reported as a server error for that request, for example "Degree Explorer returned
+  a server error for this request (HTTP 500). Other reads may still work", instead of
+  "Degree Explorer is down". It no longer marks the service as unavailable in
+  `uoft_auth_status`.
+- A failed or unavailable read no longer discards the other reads in the same `uoft_read`
+  batch, or earlier snapshot handles. Private snapshots are now cleared only when sign-in
+  state may have changed (signed out, access denied, login, forget, account switch,
+  or an unclassified failure); outages, rate limits, network errors, and changed or
+  rejected requests keep them.
+- While a visible login is running, `uoft_auth_status` with `refresh=true` now says the
+  refresh was skipped (`refresh.skipped`) and which service the login still waits for.
+  Reads paused by the login name the same service: "UofT login is in progress (waiting
+  for ACORN; reads are paused until it finishes)". Reads stay paused so a login can never
+  mix sessions.
+- The idle login message is now "No login in progress." instead of "Use uoft_login to
+  connect.", which was wrong after a saved session had been restored.
 
 ### Added
 
@@ -56,29 +76,6 @@
 - Move the `generateYear` request models and share posting into
   `timetable_builder/generation.py` and `timetable_builder/client.py`; `generate_timetable`
   and `save_timetable` behave exactly as before.
-
-### Fixed
-
-- `degree_explorer_get_cell_details` is no longer a compact `uoft_read` operation. Without
-  cell selectors its route answered HTTP 500 on every call in live testing, so discovery
-  now lists 20 operations instead of 21. The legacy profile still has the tool.
-- A 5xx from one Degree Explorer or ACORN read (other than 503 or a maintenance page) is
-  now reported as a server error for that request, for example "Degree Explorer returned
-  a server error for this request (HTTP 500). Other reads may still work", instead of
-  "Degree Explorer is down". It no longer marks the service as unavailable in
-  `uoft_auth_status`.
-- A failed or unavailable read no longer discards the other reads in the same `uoft_read`
-  batch, or earlier snapshot handles. Private snapshots are now cleared only when sign-in
-  state may have changed (signed out, access denied, login, forget, account switch,
-  or an unclassified failure); outages, rate limits, network errors, and changed or
-  rejected requests keep them.
-- While a visible login is running, `uoft_auth_status` with `refresh=true` now says the
-  refresh was skipped (`refresh.skipped`) and which service the login still waits for.
-  Reads paused by the login name the same service: "UofT login is in progress (waiting
-  for ACORN; reads are paused until it finishes)". Reads stay paused so a login can never
-  mix sessions.
-- The idle login message is now "No login in progress." instead of "Use uoft_login to
-  connect.", which was wrong after a saved session had been restored.
 
 ## 0.6.0 — 2026-09-20
 
