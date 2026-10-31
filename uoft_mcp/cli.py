@@ -25,7 +25,7 @@ def parser() -> argparse.ArgumentParser:
         "--tool-profile",
         choices=["compact", "legacy"],
         default="compact",
-        help="MCP interface: compact (7 tools) or legacy (25 tools)",
+        help="MCP interface: compact (10 tools) or legacy (28 tools)",
     )
     commands = result.add_subparsers(dest="command")
     doctor = commands.add_parser("doctor", help="Check this install and print MCP client config")

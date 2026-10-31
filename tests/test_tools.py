@@ -27,6 +27,8 @@ TOOL_NAMES = {
     "save_timetable",
     "plan_timetable",
     "retrieve_timetable",
+    "find_courses",
+    "course_info",
     "uoft_login",
     "uoft_auth_status",
     "uoft_forget_session",
@@ -89,6 +91,8 @@ async def test_discovery_and_required_arguments():
         assert tools["generate_timetable"].input_schema["required"] == ["plans"]
         assert tools["save_timetable"].input_schema["required"] == ["timetable"]
         assert tools["retrieve_timetable"].input_schema["required"] == ["share_id"]
+        assert tools["find_courses"].input_schema["required"] == ["query"]
+        assert tools["course_info"].input_schema["required"] == ["course_codes"]
 
 
 @pytest.mark.anyio
